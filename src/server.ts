@@ -1,4 +1,6 @@
-import express, { Request, Response, NextFunction, ErrorRequestHandler } from "express";
+// 🛠️ Ajustado para produção no Railway
+
+import express, { Request, Response, ErrorRequestHandler } from "express";
 import dotenv from "dotenv";
 import cors from "cors";
 import helmet from "helmet";
@@ -12,12 +14,14 @@ const app = express();
 /* -------------------------------------------------------------------------- */
 /* 🛠️ Middlewares Globais – ORDEM IMPORTA! */
 /* -------------------------------------------------------------------------- */
-app.use(express.json()); // ✅ TEM que vir primeiro de tudo
-app.use(cors({
-  origin: "*", // ⚠️ Em produção, troque pelo domínio real
-  methods: ["GET", "POST", "PATCH", "PUT", "DELETE"],
-  allowedHeaders: ["Content-Type", "Authorization"],
-}));
+app.use(express.json());
+app.use(
+  cors({
+    origin: "*", // ⚠️ Ajuste aqui se quiser limitar a domínios específicos no futuro
+    methods: ["GET", "POST", "PATCH", "PUT", "DELETE"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+  })
+);
 app.use(helmet());
 
 if (process.env.NODE_ENV !== "production") {
@@ -25,7 +29,7 @@ if (process.env.NODE_ENV !== "production") {
 }
 
 /* -------------------------------------------------------------------------- */
-/* 🩹 Captura JSON malformado – precisa vir depois do express.json() */
+/* 🩹 Captura JSON malformado */
 /* -------------------------------------------------------------------------- */
 const invalidJsonHandler: ErrorRequestHandler = (err, _req, res, next): void => {
   if (err instanceof SyntaxError && "body" in err) {
@@ -37,7 +41,6 @@ const invalidJsonHandler: ErrorRequestHandler = (err, _req, res, next): void => 
   }
   next(err);
 };
-
 app.use(invalidJsonHandler);
 
 /* -------------------------------------------------------------------------- */
@@ -62,6 +65,8 @@ app.get("/", (_req: Request, res: Response) => {
   res.status(200).json({
     status: true,
     msg: "🚀 API do Gateway rodando com sucesso!",
+    baseUrl: process.env.BASE_URL || "não configurada",
+    environment: process.env.NODE_ENV || "desconhecido",
   });
 });
 
@@ -90,7 +95,6 @@ const globalErrorHandler: ErrorRequestHandler = (err, _req, res, _next): void =>
     stack: process.env.NODE_ENV !== "production" ? err.stack : undefined,
   });
 };
-
 app.use(globalErrorHandler);
 
 /* -------------------------------------------------------------------------- */
@@ -98,7 +102,14 @@ app.use(globalErrorHandler);
 /* -------------------------------------------------------------------------- */
 const PORT: number = Number(process.env.PORT) || 3000;
 
+// 🚨 Ajuste automático da BASE_URL no Railway
+const BASE_URL =
+  process.env.BASE_URL ||
+  (process.env.RAILWAY_STATIC_URL
+    ? `https://${process.env.RAILWAY_STATIC_URL}`
+    : `http://localhost:${PORT}`);
+
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`✅ Servidor rodando na porta ${PORT}`);
-  console.log(`🌍 API disponível em: http://localhost:${PORT}`);
+  console.log(`🌍 API disponível em: ${BASE_URL}`);
 });
