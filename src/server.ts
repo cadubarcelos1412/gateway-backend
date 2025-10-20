@@ -64,7 +64,7 @@ app.use("/api", routes);
 app.get("/", (_req: Request, res: Response) => {
   res.status(200).json({
     status: true,
-    msg: "🚀 API do Gateway rodando com sucesso!",
+    msg: "🚀 Kissa Pagamentos vem chegando com tudo!!!",
     baseUrl: process.env.BASE_URL || "não configurada",
     environment: process.env.NODE_ENV || "desconhecido",
   });
