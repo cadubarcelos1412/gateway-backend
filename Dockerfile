@@ -1,30 +1,19 @@
-# 🏗️ Etapa 1 - Build da aplicação
-FROM node:18 AS build
+# Etapa 1 – build da aplicação
+FROM node:18 AS builder
 
 WORKDIR /app
-
-# Copia apenas os arquivos essenciais primeiro (para aproveitar cache)
-COPY package*.json tsconfig.json ./
-
-# Instala dependências
+COPY package*.json ./
 RUN npm install
-
-# Copia o restante do código
 COPY . .
-
-# Compila o TypeScript
 RUN npm run build
 
-# 🚀 Etapa 2 - Ambiente de Produção
-FROM node:18
+# Etapa 2 – imagem final de produção
+FROM node:18-alpine
 
 WORKDIR /app
+COPY --from=builder /app/dist ./dist
+COPY package*.json ./
+RUN npm install --omit=dev
 
-# Copia a build gerada da primeira etapa
-COPY --from=build /app .
-
-# Expõe a porta da aplicação
 EXPOSE 3000
-
-# Comando de inicialização
-CMD ["npm", "start"]
+CMD ["node", "dist/server.js"]
