@@ -1,4 +1,3 @@
-// src/routes/index.ts
 import { Router } from "express";
 
 // 📁 Importações de rotas
@@ -14,44 +13,28 @@ import retentionPolicyRoutes from "./retentionPolicy.routes";
 import masterRoutes from "./master.routes";
 import sellerRoutes from "./seller.routes";
 import uploadRoutes from "./upload.routes";
-import subaccountRoutes from "./subaccount.routes"; // ✅ novo módulo de subcontas
+import subaccountRoutes from "./subaccount.routes";
+import reserveRoutes from "./reserve.routes"; // ✅ nova rota
 
 const router = Router();
 
-/* -------------------------------------------------------------------------- */
-/* 🌐 ROTAS PRINCIPAIS DA API */
-/* -------------------------------------------------------------------------- */
-
-// 🧑‍💻 Usuários e autenticação
+// 🌐 Rotas principais
 router.use("/users", userRoutes);
-
-// 💸 Transações e financeiro
 router.use("/transactions", transactionRoutes);
 router.use("/cashout", cashoutRoutes);
 router.use("/wallet", walletRoutes);
-
-// 🛒 Checkout e produtos
 router.use("/checkout", checkoutRoutes);
 router.use("/products", productRoutes);
-
-// 📊 Relatórios e retenção
 router.use("/reports", reportRoutes);
 router.use("/reports/volume", volumeRoutes);
 router.use("/retention", retentionPolicyRoutes);
-
-// 🛡️ Sellers, administração e subcontas
 router.use("/sellers", sellerRoutes);
-router.use("/subaccounts", subaccountRoutes); // ✅ consulta da subconta vinculada ao seller
-
-// 📤 Upload de documentos KYC (rota separada para não conflitar com /sellers)
+router.use("/subaccounts", subaccountRoutes);
 router.use("/upload", uploadRoutes);
-
-// 👑 Administração geral
 router.use("/master", masterRoutes);
+router.use("/reserve", reserveRoutes); // ✅ adicionado
 
-/* -------------------------------------------------------------------------- */
-/* 🔁 Fallback – rota inexistente */
-/* -------------------------------------------------------------------------- */
+// fallback
 router.use("*", (_req, res) => {
   res.status(404).json({
     status: false,

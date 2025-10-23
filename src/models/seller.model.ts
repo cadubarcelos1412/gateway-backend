@@ -1,3 +1,4 @@
+// src/models/seller.model.ts
 import mongoose, { Schema, Document, Types } from "mongoose";
 
 /* -------------------------------------------------------------------------- */
@@ -6,6 +7,7 @@ import mongoose, { Schema, Document, Types } from "mongoose";
 
 export type SellerType = "PF" | "PJ";
 export type KycStatus = "pending" | "under_review" | "approved" | "rejected" | "active";
+export type AcquirerType = "pagarme" | "stripe" | "reflowpay";
 
 export interface IAddress {
   street: string;
@@ -66,6 +68,8 @@ export interface ISeller extends Document {
   type: SellerType;
   documentNumber: string;
   address: IAddress;
+
+  acquirer: AcquirerType; // 🏦 adquirente usada por esse seller
 
   kycStatus: KycStatus;
   kycDocuments: IKycDocuments;
@@ -161,6 +165,15 @@ const SellerSchema = new Schema<ISeller>(
 
     address: { type: AddressSchema, required: true },
 
+    // 🏦 Multiadquirência – cada seller pode ter sua adquirente configurada
+    acquirer: {
+      type: String,
+      enum: ["pagarme", "stripe", "reflowpay"],
+      default: "pagarme",
+      required: true,
+      index: true,
+    },
+
     kycStatus: {
       type: String,
       enum: ["pending", "under_review", "approved", "rejected", "active"],
@@ -229,6 +242,7 @@ SellerSchema.pre("save", function (next) {
 /* -------------------------------------------------------------------------- */
 SellerSchema.index({ userId: 1, kycStatus: 1 });
 SellerSchema.index({ name: "text", email: "text" });
+SellerSchema.index({ acquirer: 1 });
 
 /* -------------------------------------------------------------------------- */
 /* 📤 Exportação                                                             */
