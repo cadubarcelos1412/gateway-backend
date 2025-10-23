@@ -1,9 +1,10 @@
-import { Router } from "express";
+import { Router, Request, Response } from "express";
 import {
   registerUser,
   updateSplitFees,
   createAdminUser,
   getSplitFees,
+  loginUser,
 } from "../controllers/user.controller";
 
 const router = Router();
@@ -14,32 +15,39 @@ const router = Router();
 --------------------------------------------------------------------------- */
 
 /**
- * 🆕 Registra um novo usuário (seller, cliente, etc.)
- * POST /api/users/register
- * Acesso: Público (controle feito no controller)
+ * 🆕 Registra um novo usuário
  */
-router.post("/register", registerUser);
+router.post("/register", (req: Request, res: Response) => {
+  registerUser(req, res);
+});
 
 /**
- * 👑 Cria um novo usuário administrador
- * POST /api/users/admin
- * Acesso: Privado (uso interno controlado)
+ * 🔐 Login de usuário
  */
-router.post("/admin", createAdminUser);
+router.post("/login", (req: Request, res: Response) => {
+  loginUser(req, res);
+});
 
 /**
- * 💸 Atualiza as taxas de split para um usuário específico
- * PATCH /api/users/:id/split
- * Acesso: Admin ou Master
+ * 👑 Cria novo admin
  */
-router.patch("/:id/split", updateSplitFees);
+router.post("/admin", (req: Request, res: Response) => {
+  createAdminUser(req, res);
+});
 
 /**
- * 📊 Retorna as taxas de split configuradas para um usuário
- * GET /api/users/:id/split
- * Acesso: Protegido (necessário token)
+ * 💸 Atualiza split fees
  */
-router.get("/:id/split", getSplitFees);
+router.patch("/:id/split", (req: Request, res: Response) => {
+  updateSplitFees(req, res);
+});
+
+/**
+ * 📊 Retorna split fees
+ */
+router.get("/:id/split", (req: Request, res: Response) => {
+  getSplitFees(req, res);
+});
 
 /* -------------------------------------------------------------------------- */
 

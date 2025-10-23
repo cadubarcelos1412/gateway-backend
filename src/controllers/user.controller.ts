@@ -1,216 +1,171 @@
 import { Request, Response } from "express";
-import mongoose from "mongoose";
-import bcrypt from "bcryptjs";
+import bcrypt from "bcrypt";
+import jwt from "jsonwebtoken";
 import { User } from "../models/user.model";
-import { Wallet } from "../models/wallet.model";
-import { decodeToken } from "../config/auth";
 
-type PaymentMethod = "pix" | "creditCard" | "boleto";
-
-/* -------------------------------------------------------
-🆕 1. Registrar novo usuário (seller, client, etc.)
-POST /api/users/register
--------------------------------------------------------- */
+/* --------------------------------------------------------------------------
+ 🆕 REGISTRO DE USUÁRIO
+--------------------------------------------------------------------------- */
 export const registerUser = async (req: Request, res: Response): Promise<void> => {
   try {
     const { name, email, password, role } = req.body;
 
-    if (!name || !email || !password) {
-      res.status(400).json({ status: false, msg: "Nome, email e senha são obrigatórios." });
+    const existingUser = await User.findOne({ email });
+    if (existingUser) {
+      res.status(400).json({ status: false, msg: "E-mail já cadastrado." });
       return;
     }
 
-    const existing = await User.findOne({ email });
-    if (existing) {
-      res.status(409).json({ status: false, msg: "E-mail já cadastrado." });
-      return;
-    }
+    const hash = await bcrypt.hash(password, 10);
 
-    const hashedPassword = await bcrypt.hash(password, 10);
-
-    // 👤 Criar usuário
     const user = await User.create({
       name,
       email,
-      password: hashedPassword,
+      password: hash,
       role: role || "seller",
       status: "active",
-      split: {
-        cashIn: {
-          pix: { fixed: 0, percentage: 0 },
-          creditCard: { fixed: 0, percentage: 0 },
-          boleto: { fixed: 0, percentage: 0 },
-        },
-      },
-    });
-
-    // 💼 Criar carteira vinculada
-    await Wallet.create({
-      userId: user._id,
-      balance: { available: 0, unAvailable: [] },
-      log: [],
+      createdAt: new Date(),
     });
 
     res.status(201).json({
       status: true,
-      msg: "✅ Usuário criado com sucesso e carteira vinculada.",
+      msg: "Usuário registrado com sucesso.",
       user: {
-        id: user._id,
+        _id: user._id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+      },
+    });
+  } catch (err: any) {
+    console.error("Erro ao registrar usuário:", err);
+    res.status(500).json({ status: false, msg: "Erro interno no servidor." });
+  }
+};
+
+/* --------------------------------------------------------------------------
+ 🔐 LOGIN DE USUÁRIO
+--------------------------------------------------------------------------- */
+export const loginUser = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { email, password } = req.body;
+
+    const user = await User.findOne({ email });
+    if (!user) {
+      res.status(401).json({ status: false, msg: "Usuário não encontrado." });
+      return;
+    }
+
+    const isPasswordValid = await bcrypt.compare(password, user.password);
+    if (!isPasswordValid) {
+      res.status(401).json({ status: false, msg: "Senha incorreta." });
+      return;
+    }
+
+    const token = jwt.sign(
+      { id: user._id, role: user.role },
+      process.env.JWT_SECRET || "dev-secret",
+      { expiresIn: "7d" }
+    );
+
+    res.status(200).json({
+      status: true,
+      msg: "Login realizado com sucesso.",
+      token,
+      user: {
+        _id: user._id,
         name: user.name,
         email: user.email,
         role: user.role,
         status: user.status,
       },
     });
-  } catch (err) {
-    console.error("❌ Erro em registerUser:", err);
-    res.status(500).json({ status: false, msg: "Erro interno ao registrar usuário." });
+  } catch (err: any) {
+    console.error("Erro no login:", err);
+    res.status(500).json({ status: false, msg: "Erro interno no servidor." });
   }
 };
 
-/* -------------------------------------------------------
-👑 2. Criar usuário administrador
-POST /api/users/admin
--------------------------------------------------------- */
+/* --------------------------------------------------------------------------
+ 👑 CRIAÇÃO DE ADMIN
+--------------------------------------------------------------------------- */
 export const createAdminUser = async (req: Request, res: Response): Promise<void> => {
   try {
     const { name, email, password } = req.body;
 
-    if (!email || !password) {
-      res.status(400).json({ status: false, msg: "Email e senha são obrigatórios." });
+    const existingUser = await User.findOne({ email });
+    if (existingUser) {
+      res.status(400).json({ status: false, msg: "Admin já cadastrado." });
       return;
     }
 
-    const existing = await User.findOne({ email });
-    if (existing) {
-      res.status(409).json({ status: false, msg: "Este e-mail já está cadastrado." });
-      return;
-    }
+    const hash = await bcrypt.hash(password, 10);
 
-    const hashedPassword = await bcrypt.hash(password, 10);
-
-    const admin = await User.create({
+    const user = await User.create({
       name,
       email,
-      password: hashedPassword,
+      password: hash,
       role: "admin",
       status: "active",
-      split: {
-        cashIn: {
-          pix: { fixed: 0, percentage: 0 },
-          creditCard: { fixed: 0, percentage: 0 },
-          boleto: { fixed: 0, percentage: 0 },
-        },
-      },
+      createdAt: new Date(),
     });
 
     res.status(201).json({
       status: true,
-      msg: "✅ Usuário administrador criado com sucesso.",
+      msg: "Administrador criado com sucesso.",
       user: {
-        id: admin._id,
-        name: admin.name,
-        email: admin.email,
-        role: admin.role,
-        status: admin.status,
+        _id: user._id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
       },
     });
-  } catch (err) {
-    console.error("❌ Erro ao criar admin:", err);
-    res.status(500).json({ status: false, msg: "Erro interno ao criar admin." });
+  } catch (err: any) {
+    console.error("Erro ao criar admin:", err);
+    res.status(500).json({ status: false, msg: "Erro interno no servidor." });
   }
 };
 
-/* -------------------------------------------------------
-💸 3. Atualizar taxas de split
-PATCH /api/users/:id/split
--------------------------------------------------------- */
+/* --------------------------------------------------------------------------
+ 💸 ATUALIZAÇÃO DE SPLIT FEES
+--------------------------------------------------------------------------- */
 export const updateSplitFees = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { id: userId } = req.params;
-    const token = req.headers.authorization?.replace("Bearer ", "") ?? "";
-    const payload = await decodeToken(token);
+    const { id } = req.params;
+    const { splitFees } = req.body;
 
-    if (!payload || !["admin", "master"].includes(payload.role)) {
-      res.status(403).json({ status: false, msg: "Acesso negado. Apenas admins ou master." });
-      return;
-    }
-
-    if (!mongoose.Types.ObjectId.isValid(userId)) {
-      res.status(400).json({ status: false, msg: "ID de usuário inválido." });
-      return;
-    }
-
-    const { method, fixed, percentage } = req.body as {
-      method: PaymentMethod;
-      fixed: number;
-      percentage: number;
-    };
-
-    const validMethods: PaymentMethod[] = ["pix", "creditCard", "boleto"];
-    if (!validMethods.includes(method)) {
-      res.status(400).json({ status: false, msg: `Método inválido. Use: ${validMethods.join(", ")}` });
-      return;
-    }
-
-    const user = await User.findById(userId);
+    const user = await User.findByIdAndUpdate(id, { splitFees }, { new: true });
     if (!user) {
       res.status(404).json({ status: false, msg: "Usuário não encontrado." });
       return;
     }
 
-    if (!user.split?.cashIn) {
-      user.split = {
-        cashIn: {
-          pix: { fixed: 0, percentage: 0 },
-          creditCard: { fixed: 0, percentage: 0 },
-          boleto: { fixed: 0, percentage: 0 },
-        },
-      };
-    }
-
-    const key = method as keyof typeof user.split.cashIn;
-    user.split.cashIn[key] = { fixed, percentage };
-
-    await user.save();
-
-    res.status(200).json({
-      status: true,
-      msg: `✅ Taxas de ${method} atualizadas com sucesso.`,
-      split: user.split.cashIn[key],
-    });
-  } catch (err) {
-    console.error("❌ Erro ao atualizar split:", err);
-    res.status(500).json({ status: false, msg: "Erro interno ao atualizar taxas." });
+    res.status(200).json({ status: true, msg: "Split fees atualizadas.", user });
+  } catch (err: any) {
+    console.error("Erro ao atualizar split fees:", err);
+    res.status(500).json({ status: false, msg: "Erro interno no servidor." });
   }
 };
 
-/* -------------------------------------------------------
-📊 4. Obter taxas de split de um usuário
-GET /api/users/:id/split
--------------------------------------------------------- */
+/* --------------------------------------------------------------------------
+ 📊 OBTÉM SPLIT FEES
+--------------------------------------------------------------------------- */
 export const getSplitFees = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { id: userId } = req.params;
+    const { id } = req.params;
+    const user = await User.findById(id).lean();
 
-    if (!mongoose.Types.ObjectId.isValid(userId)) {
-      res.status(400).json({ status: false, msg: "ID de usuário inválido." });
-      return;
-    }
-
-    const user = await User.findById(userId).lean();
     if (!user) {
       res.status(404).json({ status: false, msg: "Usuário não encontrado." });
       return;
     }
 
-    res.status(200).json({
-      status: true,
-      msg: "✅ Taxas de split retornadas com sucesso.",
-      split: user.split?.cashIn ?? {},
-    });
-  } catch (err) {
-    console.error("❌ Erro ao obter taxas:", err);
-    res.status(500).json({ status: false, msg: "Erro interno ao obter taxas." });
+    // Se o tipo IUser não tiver o campo splitFees, isso evita erro de tipagem
+    const splitFees = (user as any).splitFees || null;
+
+    res.status(200).json({ status: true, splitFees });
+  } catch (err: any) {
+    console.error("Erro ao buscar split fees:", err);
+    res.status(500).json({ status: false, msg: "Erro interno no servidor." });
   }
 };
