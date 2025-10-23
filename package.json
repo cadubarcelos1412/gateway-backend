@@ -1,6 +1,6 @@
 {
-  "name": "gateway-backend",
-  "version": "1.0.0",
+  "name": "kissa-pagamentos",
+  "version": "1.0",
   "description": "Backend do gateway de pagamentos com arquitetura de subadquirente",
   "main": "dist/server.js",
   "scripts": {
