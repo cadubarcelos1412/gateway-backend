@@ -1,43 +1,24 @@
-import { Router } from "express";
+import express from "express";
 import {
-  createCashoutRequest,
-  listCashoutRequests,
-  approveCashoutRequest,
-  rejectCashoutRequest,
+  createCashout,
+  approveCashout,
+  rejectCashout,
 } from "../controllers/cashout.controller";
 
-const router = Router();
-
-/* -------------------------------------------------------------------------- */
-/* 🏦 ROTAS DE CASHOUT / SAQUES                                              */
-/* -------------------------------------------------------------------------- */
+const router = express.Router();
 
 /**
- * @route POST /api/cashouts/request
- * @desc Criar nova solicitação de saque (seller)
- * @access Protegido (token JWT)
+ * 💸 Rotas de Cashout (saques)
+ * Protegidas — apenas master/admin pode aprovar/rejeitar.
  */
-router.post("/request", createCashoutRequest);
 
-/**
- * @route GET /api/cashouts/list
- * @desc Listar todas as solicitações (apenas admin/master)
- * @access Protegido
- */
-router.get("/list", listCashoutRequests);
+// 1️⃣ Criar solicitação de saque (seller)
+router.post("/create", createCashout);
 
-/**
- * @route POST /api/cashouts/:id/approve
- * @desc Aprovar solicitação de saque específica (admin/master)
- * @access Protegido
- */
-router.post("/:id/approve", approveCashoutRequest);
+// 2️⃣ Aprovar solicitação (master/admin)
+router.post("/approve", approveCashout);
 
-/**
- * @route POST /api/cashouts/:id/reject
- * @desc Rejeitar solicitação de saque específica (admin/master)
- * @access Protegido
- */
-router.post("/:id/reject", rejectCashoutRequest);
+// 3️⃣ Rejeitar solicitação (master/admin)
+router.post("/reject", rejectCashout);
 
 export default router;
