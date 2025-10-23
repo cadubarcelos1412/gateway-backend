@@ -30,7 +30,7 @@ const MONGO_URI = process.env.MONGO_URI;
 
     // 🚀 Inicializa o servidor
     app.listen(PORT, () => {
-      console.log(`🌍 Servidor rodando na porta ${PORT}`);
+      console.log(`🌍  KissaPagamentos 1.0 rodando na porta ${PORT}`);
     });
 
     // 🕒 Importa e inicia o agendador diário (Proof of Settlement)
