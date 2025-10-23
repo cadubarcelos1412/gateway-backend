@@ -1,22 +1,50 @@
 // src/config/stripe.ts
 import Stripe from "stripe";
 
-const STRIPE_SECRET = process.env.STRIPE_SECRET_KEY as string;
+/**
+ * ✅ Inicializa Stripe de forma segura e tolerante a falhas.
+ */
+const STRIPE_SECRET = process.env.STRIPE_SECRET_KEY as string | undefined;
+
+let stripe: Stripe | null = null;
+
 if (!STRIPE_SECRET) {
-  throw new Error("❌ STRIPE_SECRET_KEY não configurada no .env");
+  const msg = "⚠️ STRIPE_SECRET_KEY não configurada — Stripe desativado neste ambiente.";
+
+  if (process.env.NODE_ENV === "production") {
+    throw new Error(`❌ ${msg}`);
+  } else {
+    console.warn(msg);
+  }
+} else {
+  stripe = new Stripe(STRIPE_SECRET, {
+    apiVersion: "2022-11-15" as any, // 👈 força o tipo
+  });
 }
 
-// ⚡️ Sem definir apiVersion manualmente (evita erros de tipagem)
-export const stripe = new Stripe(STRIPE_SECRET);
+/**
+ * Helper para garantir que o Stripe está inicializado
+ */
+export function getStripe(): Stripe {
+  if (!stripe) {
+    throw new Error("⚠️ Stripe não inicializado neste ambiente.");
+  }
+  return stripe;
+}
 
+/**
+ * 🧾 Cria um pagamento (Payment Intent)
+ */
 export const createStripePaymentIntent = async (payload: {
   amount: number;
   currency: string;
   customer: { name: string; email: string };
   metadata?: Record<string, any>;
 }) => {
-  return await stripe.paymentIntents.create({
-    amount: Math.round(payload.amount * 100), // centavos
+  const s = getStripe();
+
+  return await s.paymentIntents.create({
+    amount: Math.round(payload.amount * 100),
     currency: payload.currency,
     description: payload.metadata?.description || "Venda via Kissa",
     metadata: payload.metadata,
@@ -25,6 +53,12 @@ export const createStripePaymentIntent = async (payload: {
   });
 };
 
+/**
+ * 💰 Captura um pagamento pendente
+ */
 export const captureStripePayment = async (paymentIntentId: string) => {
-  return await stripe.paymentIntents.capture(paymentIntentId);
+  const s = getStripe();
+  return await s.paymentIntents.capture(paymentIntentId);
 };
+
+export { stripe };
