@@ -1,9 +1,10 @@
-import { resolveAcquirer, AcquirerKey } from "./index";
+import { PagarmeAcquirer } from "./pagarme.acquirer";
 
-/**
- * Alias para compatibilidade retroativa.
- * Exemplo: getAcquirer("stripe") → instancia StripeAcquirer
- */
-export function getAcquirer(key: AcquirerKey) {
-  return resolveAcquirer(key);
-}
+export const getAcquirer = (key: string) => {
+  const map: Record<string, any> = {
+    pagarme: PagarmeAcquirer,
+  };
+  const Acquirer = map[key];
+  if (!Acquirer) throw new Error(`Adquirente desconhecida: ${key}`);
+  return new Acquirer();
+};

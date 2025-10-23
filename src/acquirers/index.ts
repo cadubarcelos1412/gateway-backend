@@ -1,32 +1,40 @@
-/**
- * 📦 src/acquirers/index.ts
- * Ponto único de entrada para toda a camada de adquirentes.
- */
-
+// src/acquirers/index.ts
 import { IAcquirer } from "./IAcquirer";
-import { StripeAcquirer } from "./stripe.acquirer";
 import { PagarmeAcquirer } from "./pagarme.acquirer";
 
 /* -------------------------------------------------------------------------- */
 /* 🧠 Tipos e constantes centrais                                             */
 /* -------------------------------------------------------------------------- */
 
-export type AcquirerKey = "stripe" | "pagarme";
-export const ACQUIRER_KEYS: readonly AcquirerKey[] = ["stripe", "pagarme"] as const;
+/** Lista de chaves de adquirentes suportadas no sistema */
+export type AcquirerKey = "pagarme";
+
+/** Chaves registradas para expansão futura (ex: Adyen, Stone, Cielo...) */
+export const ACQUIRER_KEYS: readonly AcquirerKey[] = ["pagarme"] as const;
 
 /* -------------------------------------------------------------------------- */
 /* 🏭 Registro de Adapters (Factory Map)                                      */
 /* -------------------------------------------------------------------------- */
 
+/**
+ * Cada adquirente precisa implementar a interface IAcquirer,
+ * garantindo consistência entre todas as integrações.
+ */
 export const ACQUIRER_REGISTRY: Record<AcquirerKey, new () => IAcquirer> = {
-  stripe: StripeAcquirer,
   pagarme: PagarmeAcquirer,
 };
 
 /* -------------------------------------------------------------------------- */
-/* 🧰 Função utilitária principal – resolveAcquirer                           */
+/* 🧰 resolveAcquirer – instancia dinamicamente o adapter solicitado          */
 /* -------------------------------------------------------------------------- */
 
+/**
+ * Retorna dinamicamente a adquirente configurada.
+ * @param key Chave da adquirente ("pagarme")
+ * @example
+ * const acquirer = resolveAcquirer("pagarme");
+ * await acquirer.createTransaction(dto);
+ */
 export function resolveAcquirer(key: AcquirerKey): IAcquirer {
   const Adapter = ACQUIRER_REGISTRY[key];
   if (!Adapter) throw new Error(`❌ Adquirente não suportada: ${key}`);
@@ -37,10 +45,6 @@ export function resolveAcquirer(key: AcquirerKey): IAcquirer {
 /* 📦 Re-exports convenientes                                                 */
 /* -------------------------------------------------------------------------- */
 
-// Tipos globais compartilhados
 export * from "./types";
 export * from "./IAcquirer";
-
-// Expor adapters diretamente (útil para testes e debug)
-export { StripeAcquirer } from "./stripe.acquirer";
 export { PagarmeAcquirer } from "./pagarme.acquirer";

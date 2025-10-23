@@ -5,7 +5,6 @@ import {
   consultTransactionByID,
   webhookTransaction,
 } from "../controllers/transaction.controller";
-import { stripeWebhook } from "../controllers/stripe.controller";
 import { requireApprovedKyc } from "../middleware/kycGuard";
 import { transactionLogger } from "../middleware/transactionLogger";
 
@@ -71,13 +70,13 @@ const validateCreateTransaction = (
 };
 
 /* -------------------------------------------------------------------------- */
-/* 🧾 Criar transação real (multiadquirente)                                  */
+/* 💳 Criar transação real (multiadquirente)                                 */
 /* -------------------------------------------------------------------------- */
 /**
  * - Exige KYC aprovado
  * - Valida payload
  * - Loga tentativa
- * - Encaminha para adquirente correta (Stripe | Pagar.me)
+ * - Encaminha para adquirente correta (Pagar.me)
  */
 router.post(
   "/create",
@@ -96,7 +95,8 @@ router.post(
  */
 router.get(
   "/consult",
-  (req: Request, res: Response): Promise<void> => consultTransactionByID(req, res)
+  (req: Request, res: Response): Promise<void> =>
+    consultTransactionByID(req, res)
 );
 
 /* -------------------------------------------------------------------------- */
@@ -109,20 +109,6 @@ router.get(
 router.post(
   "/webhook",
   (req: Request, res: Response): Promise<void> => webhookTransaction(req, res)
-);
-
-/* -------------------------------------------------------------------------- */
-/* 📡 Webhook – Stripe                                                        */
-/* -------------------------------------------------------------------------- */
-/**
- * ⚠️ IMPORTANTE:
- * - Precisa usar `express.raw()` para validação da assinatura.
- * - Esta rota deve ser registrada ANTES do `express.json()` no server.ts.
- */
-router.post(
-  "/webhook/stripe",
-  express.raw({ type: "application/json" }),
-  (req: Request, res: Response): Promise<void> => stripeWebhook(req, res)
 );
 
 export default router;
