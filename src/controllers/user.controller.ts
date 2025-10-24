@@ -8,11 +8,27 @@ import { User } from "../models/user.model";
 --------------------------------------------------------------------------- */
 export const registerUser = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { name, email, password, role } = req.body;
+    const { name, email, password, document, role } = req.body;
+
+    // Validação de campos obrigatórios
+    if (!email || !password || !document) {
+      res.status(400).json({ 
+        status: false, 
+        msg: "Email, senha e documento são obrigatórios." 
+      });
+      return;
+    }
 
     const existingUser = await User.findOne({ email });
     if (existingUser) {
       res.status(400).json({ status: false, msg: "E-mail já cadastrado." });
+      return;
+    }
+
+    // Verifica se o documento já existe
+    const existingDocument = await User.findOne({ document });
+    if (existingDocument) {
+      res.status(400).json({ status: false, msg: "CPF/CNPJ já cadastrado." });
       return;
     }
 
@@ -22,6 +38,7 @@ export const registerUser = async (req: Request, res: Response): Promise<void> =
       name,
       email,
       password: hash,
+      document, // ✅ ADICIONADO
       role: role || "seller",
       status: "active",
       createdAt: new Date(),
@@ -91,7 +108,7 @@ export const loginUser = async (req: Request, res: Response): Promise<void> => {
 --------------------------------------------------------------------------- */
 export const createAdminUser = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { name, email, password } = req.body;
+    const { name, email, password, document } = req.body;
 
     const existingUser = await User.findOne({ email });
     if (existingUser) {
@@ -105,6 +122,7 @@ export const createAdminUser = async (req: Request, res: Response): Promise<void
       name,
       email,
       password: hash,
+      document: document || "00000000000", // Documento padrão para admin se não fornecido
       role: "admin",
       status: "active",
       createdAt: new Date(),
@@ -132,9 +150,14 @@ export const createAdminUser = async (req: Request, res: Response): Promise<void
 export const updateSplitFees = async (req: Request, res: Response): Promise<void> => {
   try {
     const { id } = req.params;
-    const { splitFees } = req.body;
+    const { split } = req.body;
 
-    const user = await User.findByIdAndUpdate(id, { splitFees }, { new: true });
+    const user = await User.findByIdAndUpdate(
+      id, 
+      { split }, 
+      { new: true }
+    );
+    
     if (!user) {
       res.status(404).json({ status: false, msg: "Usuário não encontrado." });
       return;
@@ -160,10 +183,9 @@ export const getSplitFees = async (req: Request, res: Response): Promise<void> =
       return;
     }
 
-    // Se o tipo IUser não tiver o campo splitFees, isso evita erro de tipagem
-    const splitFees = (user as any).splitFees || null;
+    const split = (user as any).split || null;
 
-    res.status(200).json({ status: true, splitFees });
+    res.status(200).json({ status: true, split });
   } catch (err: any) {
     console.error("Erro ao buscar split fees:", err);
     res.status(500).json({ status: false, msg: "Erro interno no servidor." });
