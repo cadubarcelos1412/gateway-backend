@@ -1,5 +1,4 @@
-// src/models/seller.model.ts
-import mongoose, { Schema, Document, Types } from "mongoose";
+import mongoose, { Schema, Document, Types, HydratedDocument } from "mongoose";
 
 /* -------------------------------------------------------------------------- */
 /* 📌 Tipos auxiliares                                                        */
@@ -56,6 +55,19 @@ export interface ISplitConfig {
   };
 }
 
+export interface IFinancialConfig {
+  acquirer: AcquirerType;
+  fees: {
+    pix: number;
+    credit_card: number;
+    boleto: number;
+  };
+  reserve: {
+    percent: number;
+    days: number;
+  };
+}
+
 /* -------------------------------------------------------------------------- */
 /* 📄 Interface principal do Seller                                          */
 /* -------------------------------------------------------------------------- */
@@ -68,17 +80,12 @@ export interface ISeller extends Document {
   type: SellerType;
   documentNumber: string;
   address: IAddress;
-
-  acquirer: AcquirerType; // 🏦 adquirente usada por esse seller
-
+  financialConfig: IFinancialConfig;
   kycStatus: KycStatus;
   kycDocuments: IKycDocuments;
   statusHistory: IStatusHistory[];
-
   split: ISplitConfig;
-
   status: "active" | "suspended" | "blocked";
-
   createdAt: Date;
   updatedAt: Date;
 }
@@ -86,29 +93,6 @@ export interface ISeller extends Document {
 /* -------------------------------------------------------------------------- */
 /* 🛠️ Schemas auxiliares                                                     */
 /* -------------------------------------------------------------------------- */
-
-const DocumentFileSchema = new Schema<IDocumentFile>(
-  {
-    url: { type: String, required: true, trim: true },
-    uploadedAt: { type: Date, required: true, default: () => new Date() },
-    mimeType: { type: String, trim: true },
-    checksum: { type: String, trim: true },
-  },
-  { _id: false }
-);
-
-const KycDocumentsSchema = new Schema<IKycDocuments>(
-  {
-    rgFront: { type: DocumentFileSchema },
-    rgBack: { type: DocumentFileSchema },
-    cpf: { type: DocumentFileSchema },
-    cnpjDoc: { type: DocumentFileSchema },
-    articlesOfAssociation: { type: DocumentFileSchema },
-    powerOfAttorney: { type: DocumentFileSchema },
-    proofOfAddress: { type: DocumentFileSchema },
-  },
-  { _id: false }
-);
 
 const AddressSchema = new Schema<IAddress>(
   {
@@ -118,7 +102,14 @@ const AddressSchema = new Schema<IAddress>(
     district: { type: String, required: true, trim: true },
     city: { type: String, required: true, trim: true },
     state: { type: String, required: true, trim: true, minlength: 2, maxlength: 2 },
-    country: { type: String, required: true, trim: true, minlength: 2, maxlength: 2, default: "BR" },
+    country: {
+      type: String,
+      required: true,
+      trim: true,
+      minlength: 2,
+      maxlength: 2,
+      default: "BR",
+    },
     postalCode: { type: String, required: true, trim: true },
   },
   { _id: false }
@@ -142,36 +133,34 @@ const StatusHistorySchema = new Schema<IStatusHistory>(
 const SellerSchema = new Schema<ISeller>(
   {
     userId: { type: Schema.Types.ObjectId, ref: "User", required: true, index: true },
-
-    name: { type: String, required: true, trim: true, minlength: 2 },
+    name: { type: String, required: true, trim: true },
     email: {
       type: String,
       required: true,
       lowercase: true,
       trim: true,
-      match: [/^\S+@\S+\.\S+$/, "Endereço de email inválido"],
+      match: [/^\S+@\S+\.\S+$/, "Endereço de e-mail inválido"],
       index: true,
     },
     phone: { type: String, trim: true },
-
     type: { type: String, enum: ["PF", "PJ"], required: true },
-    documentNumber: {
-      type: String,
-      required: true,
-      trim: true,
-      index: true,
-      unique: true,
-    },
-
+    documentNumber: { type: String, required: true, trim: true, index: true, unique: true },
     address: { type: AddressSchema, required: true },
 
-    // 🏦 Multiadquirência – cada seller pode ter sua adquirente configurada
-    acquirer: {
-      type: String,
-      enum: ["pagarme", "stripe", "reflowpay"],
-      default: "pagarme",
-      required: true,
-      index: true,
+    financialConfig: {
+      type: Object,
+      default: {
+        acquirer: "pagarme",
+        fees: {
+          pix: 1.99,
+          credit_card: 3.49,
+          boleto: 2.99,
+        },
+        reserve: {
+          percent: 10,
+          days: 2,
+        },
+      },
     },
 
     kycStatus: {
@@ -181,9 +170,8 @@ const SellerSchema = new Schema<ISeller>(
       index: true,
     },
 
-    kycDocuments: { type: KycDocumentsSchema, default: {} },
-
-    statusHistory: { type: [StatusHistorySchema], default: [] },
+    kycDocuments: { type: Object, default: {} },
+    statusHistory: { type: [StatusHistorySchema], default: [] }, // ✅ corrigido aqui
 
     split: {
       type: Object,
@@ -193,17 +181,11 @@ const SellerSchema = new Schema<ISeller>(
           credit_card: { fixed: 0, percentage: 3.49 },
           boleto: { fixed: 0, percentage: 2.99 },
         },
-        cashOut: {
-          pix: { fixed: 0.15, percentage: 0 },
-        },
+        cashOut: { pix: { fixed: 0.15, percentage: 0 } },
       },
     },
 
-    status: {
-      type: String,
-      enum: ["active", "suspended", "blocked"],
-      default: "active",
-    },
+    status: { type: String, enum: ["active", "suspended", "blocked"], default: "active" },
   },
   {
     timestamps: true,
@@ -220,18 +202,19 @@ const SellerSchema = new Schema<ISeller>(
 );
 
 /* -------------------------------------------------------------------------- */
-/* 🧪 Validações pré-salvar                                                  */
+/* 🧪 Hooks com tipagem correta                                              */
 /* -------------------------------------------------------------------------- */
 
-SellerSchema.pre("validate", function (next) {
+SellerSchema.pre("validate", function (this: HydratedDocument<ISeller>, next) {
   const onlyDigits = (v: string) => (v || "").replace(/\D+/g, "");
   if (this.documentNumber) this.documentNumber = onlyDigits(this.documentNumber);
   if (this.phone) this.phone = onlyDigits(this.phone);
-  if (this.address?.postalCode) this.address.postalCode = onlyDigits(this.address.postalCode);
+  if (this.address?.postalCode)
+    this.address.postalCode = onlyDigits(this.address.postalCode);
   next();
 });
 
-SellerSchema.pre("save", function (next) {
+SellerSchema.pre("save", function (this: HydratedDocument<ISeller>, next) {
   if (this.name) this.name = this.name.trim();
   if (this.email) this.email = this.email.trim().toLowerCase();
   next();
@@ -240,11 +223,13 @@ SellerSchema.pre("save", function (next) {
 /* -------------------------------------------------------------------------- */
 /* 📊 Índices estratégicos                                                   */
 /* -------------------------------------------------------------------------- */
+
 SellerSchema.index({ userId: 1, kycStatus: 1 });
+SellerSchema.index({ "financialConfig.acquirer": 1 });
 SellerSchema.index({ name: "text", email: "text" });
-SellerSchema.index({ acquirer: 1 });
 
 /* -------------------------------------------------------------------------- */
 /* 📤 Exportação                                                             */
 /* -------------------------------------------------------------------------- */
+
 export const Seller = mongoose.model<ISeller>("Seller", SellerSchema);

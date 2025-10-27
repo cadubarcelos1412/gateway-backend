@@ -10,18 +10,18 @@ import {
   updateUser,
   approveWithdrawal,
   declineWithdrawal,
+  updateSellerConfig, // ✅ novo
 } from "../controllers/master.controller";
+
 import { cacheMiddleware } from "../middleware/cache";
 import { verifyMasterToken } from "../middleware/MasterAuth";
-
-// 🔗 Importar controllers de KYC
 import { getAllKYCs, updateKYC } from "../controllers/kyc.controller";
 
 const router = Router();
 
-// ============================================
-// 🔓 ROTAS PÚBLICAS (SEM AUTENTICAÇÃO)
-// ============================================
+/* -------------------------------------------------------------------------- */
+/* 🔓 ROTAS PÚBLICAS                                                         */
+/* -------------------------------------------------------------------------- */
 
 /**
  * 🔑 POST /api/master/auth
@@ -35,9 +35,9 @@ router.post("/auth", generateMasterToken);
  */
 router.post("/validate", validateMasterToken);
 
-// ============================================
-// 🔐 ROTAS PROTEGIDAS (REQUEREM TOKEN MASTER)
-// ============================================
+/* -------------------------------------------------------------------------- */
+/* 🔐 ROTAS PROTEGIDAS (TOKEN MASTER OBRIGATÓRIO)                             */
+/* -------------------------------------------------------------------------- */
 
 /**
  * 📈 POST /api/master/kpas
@@ -72,14 +72,12 @@ router.post("/last-transactions", verifyMasterToken, getLastTransactions);
 /**
  * 🔍 POST /api/master/kycs
  * Lista todos os KYCs pendentes/aprovados/rejeitados
- * (Controller vem do kyc.controller.ts)
  */
 router.post("/kycs", verifyMasterToken, getAllKYCs);
 
 /**
  * ✏️ POST /api/master/kyc/update
  * Atualiza status de um KYC
- * (Controller vem do kyc.controller.ts)
  */
 router.post("/kyc/update", verifyMasterToken, updateKYC);
 
@@ -88,6 +86,12 @@ router.post("/kyc/update", verifyMasterToken, updateKYC);
  * Atualiza dados de um usuário
  */
 router.post("/user/update", verifyMasterToken, updateUser);
+
+/**
+ * 💼 POST /api/master/seller/config
+ * Atualiza adquirente, taxas e reserva de um seller
+ */
+router.post("/seller/config", verifyMasterToken, updateSellerConfig);
 
 /**
  * ✅ POST /api/master/withdrawal/accept

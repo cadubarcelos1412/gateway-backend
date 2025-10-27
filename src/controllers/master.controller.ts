@@ -1,11 +1,12 @@
 import { Request, Response } from "express";
 import { Transaction } from "../models/transaction.model";
 import { User } from "../models/user.model";
+import { Seller } from "../models/seller.model";
 import { createToken, decodeToken } from "../config/auth";
 
-/**
- * 🔐 Gera token master (via SECRET_TOKEN do .env)
- */
+/* -------------------------------------------------------------------------- */
+/* 🔐 Gera token master (via SECRET_TOKEN do .env)                            */
+/* -------------------------------------------------------------------------- */
 export const generateMasterToken = async (req: Request, res: Response): Promise<void> => {
   const { auth } = req.body;
 
@@ -15,49 +16,41 @@ export const generateMasterToken = async (req: Request, res: Response): Promise<
   }
 
   const token = await createToken({ id: "master", role: "master" });
-
   res.status(200).json({ status: true, token });
 };
 
-/**
- * ✅ Valida token master (apenas para debug ou testes)
- */
+/* -------------------------------------------------------------------------- */
+/* ✅ Valida token master                                                    */
+/* -------------------------------------------------------------------------- */
 export const validateMasterToken = async (req: Request, res: Response): Promise<void> => {
   const { token } = req.body;
   const payload = await decodeToken(token);
-
   const isValid = payload?.role === "master";
-
   res.status(200).json({ status: isValid });
 };
 
-/**
- * 📊 Retorna métricas gerais da plataforma
- */
+/* -------------------------------------------------------------------------- */
+/* 📊 Retorna KPIs gerais                                                    */
+/* -------------------------------------------------------------------------- */
 export const getKpas = async (_req: Request, res: Response): Promise<void> => {
   try {
     const today = new Date();
-
-    // 📦 Busca dados
     const [transactions, users] = await Promise.all([
       Transaction.find().lean(),
       User.find().lean(),
     ]);
 
     const approvedTx = transactions.filter((t) => t.status === "approved");
-
-    // 📊 Cálculos principais
-    const volumeTotal = transactions.reduce((sum, t) => sum + (t.amount || 0), 0);
+    const volumeTotal = transactions.reduce((s, t) => s + (t.amount || 0), 0);
     const volumeHoje = transactions
       .filter((t) => t.createdAt && new Date(t.createdAt).toDateString() === today.toDateString())
-      .reduce((sum, t) => sum + (t.amount || 0), 0);
-
+      .reduce((s, t) => s + (t.amount || 0), 0);
     const totalUsuarios = users.length;
     const usuariosHoje = users.filter(
       (u) => u.createdAt && new Date(u.createdAt).toDateString() === today.toDateString()
     ).length;
 
-    const totalTaxas = transactions.reduce((sum, t) => sum + (t.fee || 0), 0);
+    const totalTaxas = transactions.reduce((s, t) => s + (t.fee || 0), 0);
     const taxasMensais = transactions
       .filter(
         (t) =>
@@ -65,7 +58,7 @@ export const getKpas = async (_req: Request, res: Response): Promise<void> => {
           new Date(t.createdAt).getMonth() === today.getMonth() &&
           new Date(t.createdAt).getFullYear() === today.getFullYear()
       )
-      .reduce((sum, t) => sum + (t.fee || 0), 0);
+      .reduce((s, t) => s + (t.fee || 0), 0);
 
     const taxaConversao =
       transactions.length > 0 ? (approvedTx.length / transactions.length) * 100 : 0;
@@ -77,7 +70,6 @@ export const getKpas = async (_req: Request, res: Response): Promise<void> => {
       return acc;
     }, {});
 
-    // 📤 Resposta final
     res.status(200).json({
       status: true,
       volumeTotal,
@@ -106,9 +98,9 @@ export const getKpas = async (_req: Request, res: Response): Promise<void> => {
   }
 };
 
-/**
- * 🏆 Top 10 produtos mais vendidos
- */
+/* -------------------------------------------------------------------------- */
+/* 🏆 Top 10 produtos mais vendidos                                          */
+/* -------------------------------------------------------------------------- */
 export const getMostSaleProducts = async (_req: Request, res: Response): Promise<void> => {
   try {
     const top = await Transaction.aggregate([
@@ -149,12 +141,12 @@ export const getMostSaleProducts = async (_req: Request, res: Response): Promise
   }
 };
 
-/**
- * 👥 Listar todos os usuários
- */
+/* -------------------------------------------------------------------------- */
+/* 👥 Listar usuários e transações                                           */
+/* -------------------------------------------------------------------------- */
 export const getAllUsers = async (_req: Request, res: Response): Promise<void> => {
   try {
-    const users = await User.find().select('-password').lean();
+    const users = await User.find().select("-password").lean();
     res.status(200).json({ status: true, users });
   } catch (error) {
     console.error("❌ Erro em getAllUsers:", error);
@@ -162,9 +154,6 @@ export const getAllUsers = async (_req: Request, res: Response): Promise<void> =
   }
 };
 
-/**
- * 💳 Listar todas as transações
- */
 export const getAllTransactions = async (_req: Request, res: Response): Promise<void> => {
   try {
     const transactions = await Transaction.find().sort({ createdAt: -1 }).lean();
@@ -175,35 +164,27 @@ export const getAllTransactions = async (_req: Request, res: Response): Promise<
   }
 };
 
-/**
- * 📜 Últimas 10 transações
- */
 export const getLastTransactions = async (_req: Request, res: Response): Promise<void> => {
   try {
-    const transactions = await Transaction.find()
-      .sort({ createdAt: -1 })
-      .limit(10)
-      .lean();
+    const transactions = await Transaction.find().sort({ createdAt: -1 }).limit(10).lean();
     res.status(200).json({ status: true, transactions });
   } catch (error) {
     console.error("❌ Erro em getLastTransactions:", error);
-    res.status(500).json({ status: false, msg: "Erro ao buscar transações." });
+    res.status(500).json({ status: false, msg: "Erro ao buscar últimas transações." });
   }
 };
 
-/**
- * ✏️ Atualizar usuário
- */
+/* -------------------------------------------------------------------------- */
+/* ✏️ Atualizar usuário                                                      */
+/* -------------------------------------------------------------------------- */
 export const updateUser = async (req: Request, res: Response): Promise<void> => {
   try {
-    const userData = req.body;
-    const { _id, ...updateData } = userData;
-
+    const { _id, ...updateData } = req.body;
     const user = await User.findByIdAndUpdate(
       _id,
       { $set: { ...updateData, updatedAt: new Date() } },
       { new: true }
-    ).select('-password');
+    ).select("-password");
 
     if (!user) {
       res.status(404).json({ status: false, msg: "Usuário não encontrado." });
@@ -217,68 +198,90 @@ export const updateUser = async (req: Request, res: Response): Promise<void> => 
   }
 };
 
-/**
- * ✅ Aprovar saque
- */
-export const approveWithdrawal = async (req: Request, res: Response): Promise<void> => {
+/* -------------------------------------------------------------------------- */
+/* 💼 Atualizar adquirente, taxas e reserva do Seller                        */
+/* -------------------------------------------------------------------------- */
+export const updateSellerConfig = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { id } = req.body;
+    const { sellerId, acquirer, fees, reserve } = req.body;
 
-    const transaction = await Transaction.findByIdAndUpdate(
-      id,
-      { 
-        $set: { 
-          status: 'completed',
-          updatedAt: new Date()
-        } 
+    if (!sellerId) {
+      res.status(400).json({ status: false, msg: "ID do seller é obrigatório." });
+      return;
+    }
+
+    const seller = await Seller.findByIdAndUpdate(
+      sellerId,
+      {
+        $set: {
+          "financialConfig.acquirer": acquirer,
+          "financialConfig.fees": fees,
+          "financialConfig.reserve": reserve,
+          updatedAt: new Date(),
+        },
       },
       { new: true }
     );
 
-    if (!transaction) {
+    if (!seller) {
+      res.status(404).json({ status: false, msg: "Seller não encontrado." });
+      return;
+    }
+
+    res.status(200).json({
+      status: true,
+      msg: "Configurações financeiras atualizadas com sucesso.",
+      seller,
+    });
+  } catch (error) {
+    console.error("❌ Erro em updateSellerConfig:", error);
+    res.status(500).json({ status: false, msg: "Erro ao atualizar configurações do seller." });
+  }
+};
+
+/* -------------------------------------------------------------------------- */
+/* ✅ Aprovar ou rejeitar saques                                             */
+/* -------------------------------------------------------------------------- */
+export const approveWithdrawal = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { id } = req.body;
+    const tx = await Transaction.findByIdAndUpdate(
+      id,
+      { $set: { status: "completed", updatedAt: new Date() } },
+      { new: true }
+    );
+
+    if (!tx) {
       res.status(404).json({ status: false, msg: "Transação não encontrada." });
       return;
     }
 
-    res.status(200).json({ status: true, msg: "Saque aprovado com sucesso.", transaction });
+    res.status(200).json({ status: true, msg: "Saque aprovado com sucesso.", tx });
   } catch (error) {
     console.error("❌ Erro em approveWithdrawal:", error);
     res.status(500).json({ status: false, msg: "Erro ao aprovar saque." });
   }
 };
 
-/**
- * ❌ Rejeitar saque
- */
 export const declineWithdrawal = async (req: Request, res: Response): Promise<void> => {
   try {
     const { id } = req.body;
-
-    const transaction = await Transaction.findByIdAndUpdate(
+    const tx = await Transaction.findByIdAndUpdate(
       id,
-      { 
-        $set: { 
-          status: 'failed',
-          updatedAt: new Date()
-        } 
-      },
+      { $set: { status: "failed", updatedAt: new Date() } },
       { new: true }
     );
 
-    if (!transaction) {
+    if (!tx) {
       res.status(404).json({ status: false, msg: "Transação não encontrada." });
       return;
     }
 
-    // TODO: Devolver o valor para o saldo do usuário
-    if (transaction.userId) {
-      await User.findByIdAndUpdate(
-        transaction.userId,
-        { $inc: { balance: transaction.amount } }
-      );
+    if (tx.userId) {
+      await User.findByIdAndUpdate(tx.userId, { $inc: { balance: tx.amount } });
     }
 
-    res.status(200).json({ status: true, msg: "Saque rejeitado com sucesso.", transaction });
+    res.status(200).json({ status: true, msg: "Saque rejeitado com sucesso.", tx });
   } catch (error) {
     console.error("❌ Erro em declineWithdrawal:", error);
     res.status(500).json({ status: false, msg: "Erro ao rejeitar saque." });
