@@ -1,10 +1,24 @@
 // src/acquirers/acquirerSelector.ts
+import { Seller } from "../models/seller.model";
 import { AcquirerKey } from "./index";
 
 /**
- * Retorna a adquirente a ser usada com base em regras simples.
- * (Por enquanto, fixa em "pagarme" até termos múltiplas ativas)
+ * 🧩 Seleciona dinamicamente a adquirente do seller.
+ * - Lê do campo Seller.financialConfig.acquirer
+ * - Se não existir, usa "pagarme" como padrão
  */
-export function selectAcquirer(_sellerId?: string): AcquirerKey {
-  return "pagarme";
+export async function selectAcquirer(sellerId?: string): Promise<AcquirerKey> {
+  try {
+    if (!sellerId) return "pagarme";
+
+    const seller = await Seller.findById(sellerId)
+      .select("financialConfig.acquirer")
+      .lean();
+
+    const acquirer = seller?.financialConfig?.acquirer || "pagarme";
+    return acquirer as AcquirerKey;
+  } catch (error) {
+    console.error("❌ Erro ao selecionar adquirente:", error);
+    return "pagarme";
+  }
 }
