@@ -1,10 +1,17 @@
 import bcrypt from "bcrypt";
 import mongoose from "mongoose";
+import dotenv from "dotenv";
 import { User } from "../models/user.model";
+
+dotenv.config();
 
 async function createMasterUser() {
   try {
-    await mongoose.connect("mongodb+srv://SEU_USUARIO:SENHA@SEU_CLUSTER.mongodb.net/gateway-db?retryWrites=true&w=majority");
+    const uri = process.env.MONGO_URI;
+    if (!uri) throw new Error("❌ MONGO_URI não encontrado no .env");
+
+    await mongoose.connect(uri);
+    console.log("✅ Conectado ao MongoDB");
 
     const hashedPassword = await bcrypt.hash("SenhaForte123!", 10);
 
@@ -24,7 +31,7 @@ async function createMasterUser() {
       },
     });
 
-    console.log("✅ Usuário master criado com sucesso!");
+    console.log("🔥 Usuário master criado com sucesso!");
     console.log("📄 ID:", user._id);
   } catch (err) {
     console.error("❌ Erro ao criar usuário:", err);
