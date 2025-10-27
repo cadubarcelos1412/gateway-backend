@@ -1,7 +1,9 @@
+// src/services/releaseReserve.service.ts
 import mongoose, { Types, ClientSession } from "mongoose";
 import { Wallet } from "../models/wallet.model";
 import { postLedgerEntries } from "./ledger/ledger.service";
 import { TransactionAuditService } from "./transactionAudit.service";
+import { FinancialAudit } from "../models/financialAudit.model";
 import { LEDGER_ACCOUNTS } from "../config/ledger-accounts";
 import { round } from "../utils/fees";
 
@@ -11,6 +13,7 @@ import { round } from "../utils/fees";
  * - Cria lançamentos contábeis de reversão (débit/credit)
  * - Atualiza o saldo disponível do seller
  * - Registra auditoria e hash de ledger
+ * - Cria registro de auditoria financeira (FinancialAudit)
  */
 export class ReleaseReserveService {
   /**
@@ -30,7 +33,6 @@ export class ReleaseReserveService {
     const wallet = await Wallet.findOne({ userId: sellerId });
     if (!wallet) throw new Error("Carteira não encontrada.");
 
-    // 🧮 Arredonda valor
     const value = round(amount);
 
     // 🔒 Cria transação Mongo
@@ -42,12 +44,12 @@ export class ReleaseReserveService {
     }
 
     try {
-      // 🧾 Lançamentos contábeis de liberação da reserva
+      /* -------------------------------------------------------------------------- */
+      /* 🧾 Lançamentos contábeis (Ledger dupla-entrada)                            */
+      /* -------------------------------------------------------------------------- */
       await postLedgerEntries(
         [
-          // Débito na conta de reserva_risco
           { account: LEDGER_ACCOUNTS.RESERVA_RISCO, type: "debit", amount: value },
-          // Crédito no passivo_seller (valor liberado ao vendedor)
           { account: LEDGER_ACCOUNTS.PASSIVO_SELLER, type: "credit", amount: value },
         ],
         {
@@ -59,11 +61,15 @@ export class ReleaseReserveService {
         }
       );
 
-      // 💼 Atualiza carteira
+      /* -------------------------------------------------------------------------- */
+      /* 💼 Atualiza carteira                                                       */
+      /* -------------------------------------------------------------------------- */
       wallet.balance.available += value;
       await wallet.save({ session: internalSession });
 
-      // 🧠 Registra auditoria
+      /* -------------------------------------------------------------------------- */
+      /* 🧠 Auditoria de transação (já existente)                                   */
+      /* -------------------------------------------------------------------------- */
       await TransactionAuditService.log({
         transactionId: new mongoose.Types.ObjectId(),
         sellerId,
@@ -76,6 +82,26 @@ export class ReleaseReserveService {
         description: reason,
       });
 
+      /* -------------------------------------------------------------------------- */
+      /* 🧾 Auditoria Financeira Complementar (FinancialAudit)                      */
+      /* -------------------------------------------------------------------------- */
+      await FinancialAudit.create(
+        [
+          {
+            sellerId,
+            action: "release_reserve",
+            amount: value,
+            reason,
+            performedBy: "system_or_master",
+            createdAt: new Date(),
+          },
+        ],
+        { session: internalSession }
+      );
+
+      /* -------------------------------------------------------------------------- */
+      /* ✅ Commit / encerramento de sessão                                         */
+      /* -------------------------------------------------------------------------- */
       if (startedSession) {
         await internalSession.commitTransaction();
         internalSession.endSession();

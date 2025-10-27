@@ -1,15 +1,15 @@
 // src/controllers/taxConfig.controller.ts
 import { Request, Response } from "express";
 import { Seller } from "../models/seller.model";
+import { FinancialAudit } from "../models/financialAudit.model";
 
 /**
  * 💰 Atualiza as taxas e reserva financeira do seller.
- * - Permite alterar percentuais e dias de retenção.
- * - Tudo dentro de Seller.financialConfig.
+ * - Inclui log de auditoria no FinancialAudit.
  */
 export const updateTaxConfig = async (req: Request, res: Response) => {
   try {
-    const { sellerId, fees, reserve } = req.body;
+    const { sellerId, fees, reserve, performedBy } = req.body;
 
     if (!sellerId) {
       return res.status(400).json({
@@ -25,6 +25,8 @@ export const updateTaxConfig = async (req: Request, res: Response) => {
         msg: "Seller não encontrado.",
       });
     }
+
+    const oldConfig = { ...seller.financialConfig };
 
     // Atualiza taxas
     if (fees) {
@@ -43,6 +45,16 @@ export const updateTaxConfig = async (req: Request, res: Response) => {
     }
 
     await seller.save();
+
+    // 🔍 Log de auditoria
+    await FinancialAudit.create({
+      sellerId,
+      action: "update_tax_config",
+      oldValue: oldConfig,
+      newValue: seller.financialConfig,
+      performedBy: performedBy || "master_panel",
+      createdAt: new Date(),
+    });
 
     return res.status(200).json({
       status: true,

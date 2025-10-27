@@ -1,37 +1,26 @@
-import mongoose, { Schema, Document, Types } from "mongoose";
+import mongoose, { Document, Schema, Types } from "mongoose";
 
-/* -------------------------------------------------------------------------- */
-/* 📊 Tipagem para parâmetros de rastreamento (UTM e tracking)               */
-/* -------------------------------------------------------------------------- */
-export interface TrackingParameters {
-  utm_source?: string;
-  utm_medium?: string;
-  utm_campaign?: string;
-  utm_content?: string;
-  utm_term?: string;
-}
-
-/* -------------------------------------------------------------------------- */
-/* 📄 Interface principal da transação                                       */
-/* -------------------------------------------------------------------------- */
 export interface ITransaction extends Document {
-  userId: Types.ObjectId;
-  productId: Types.ObjectId;
-  amount: number;
-  fee: number;
-  netAmount: number;
-  retention: number;
-  type: "deposit" | "withdraw";
-  method: "pix" | "credit_card" | "boleto";
-  status: "pending" | "approved" | "failed";
-  description?: string;
+  sellerId: Types.ObjectId;
+  userId?: Types.ObjectId;
+  productId?: Types.ObjectId;
   externalId?: string;
-  postback?: string;
-  riskFlags: string[];
-  trackingParameters?: TrackingParameters;
-  idempotencyKey?: string;
-  createdAt: Date;
+  amount: number;
+  netAmount?: number;
+  fee?: number;
+  method: "pix" | "credit_card" | "boleto";
+  status: "pending" | "approved" | "failed" | "refunded";
+  description?: string;
+  flags?: string[];
+  metadata?: { ipAddress?: string; deviceId?: string };
+
   purchaseData?: {
+    products?: {
+      id?: string;
+      name?: string;
+      price?: number;
+      quantity?: number;
+    }[];
     customer?: {
       name?: string;
       email?: string;
@@ -39,104 +28,63 @@ export interface ITransaction extends Document {
       phone?: string;
       ip?: string;
     };
-    products?: {
-      name: string;
-      price: number;
-    }[];
   };
+
+  trackingParameters?: {
+    utm_source?: string;
+    utm_medium?: string;
+    utm_campaign?: string;
+    utm_content?: string;
+    utm_term?: string;
+  };
+
+  createdAt: Date;
+  updatedAt: Date;
 }
 
-/* -------------------------------------------------------------------------- */
-/* 🏦 Esquema Mongoose – Transações com antifraude e auditoria               */
-/* -------------------------------------------------------------------------- */
 const TransactionSchema = new Schema<ITransaction>(
   {
-    userId: { type: Schema.Types.ObjectId, ref: "User", required: true, index: true },
-    productId: { type: Schema.Types.ObjectId, ref: "Product", required: true },
+    sellerId: { type: Schema.Types.ObjectId, ref: "Seller", required: true, index: true },
+    userId: { type: Schema.Types.ObjectId, ref: "User" },
+    productId: { type: Schema.Types.ObjectId, ref: "Product" },
+    externalId: { type: String },
     amount: { type: Number, required: true },
-    fee: { type: Number, required: true },
-    netAmount: { type: Number, required: true },
-    retention: { type: Number, required: true },
-
-    type: {
-      type: String,
-      enum: ["deposit", "withdraw"],
-      required: true,
+    netAmount: { type: Number },
+    fee: { type: Number },
+    method: { type: String, enum: ["pix", "credit_card", "boleto"], required: true },
+    status: { type: String, enum: ["pending", "approved", "failed", "refunded"], default: "pending" },
+    description: { type: String, trim: true },
+    flags: [{ type: String, trim: true }],
+    metadata: {
+      ipAddress: { type: String },
+      deviceId: { type: String },
     },
-
-    method: {
-      type: String,
-      enum: ["pix", "credit_card", "boleto"],
-      required: true,
-      index: true,
-    },
-
-    status: {
-      type: String,
-      enum: ["pending", "approved", "failed"],
-      default: "pending",
-      index: true,
-    },
-
-    description: { type: String, trim: true, maxlength: 255 },
-    externalId: { type: String, index: true },
-    postback: { type: String },
-
-    idempotencyKey: {
-      type: String,
-      unique: true,
-      sparse: true,
-      index: true,
-    },
-
-    riskFlags: {
-      type: [String],
-      enum: ["HIGH_AMOUNT", "FOREIGN_IP", "NO_KYC"],
-      default: [],
-      index: true,
-    },
-
-    trackingParameters: {
-      utm_source: { type: String, trim: true },
-      utm_medium: { type: String, trim: true },
-      utm_campaign: { type: String, trim: true },
-      utm_content: { type: String, trim: true },
-      utm_term: { type: String, trim: true },
-    },
-
     purchaseData: {
-      customer: {
-        name: { type: String, trim: true },
-        email: { type: String, trim: true },
-        document: { type: String, trim: true },
-        phone: { type: String, trim: true },
-        ip: { type: String, trim: true },
-      },
       products: [
         {
-          name: { type: String, trim: true },
-          price: { type: Number },
+          id: String,
+          name: String,
+          price: Number,
+          quantity: Number,
         },
       ],
+      customer: {
+        name: String,
+        email: String,
+        document: String,
+        phone: String,
+        ip: String,
+      },
     },
-
-    createdAt: { type: Date, default: Date.now, index: true },
+    trackingParameters: {
+      utm_source: String,
+      utm_medium: String,
+      utm_campaign: String,
+      utm_content: String,
+      utm_term: String,
+    },
   },
-  {
-    versionKey: false,
-    timestamps: false,
-  }
+  { timestamps: true }
 );
-
-/* -------------------------------------------------------------------------- */
-/* 📊 Índices estratégicos – performance, antifraude e auditoria             */
-/* -------------------------------------------------------------------------- */
-TransactionSchema.index({ userId: 1, createdAt: -1 });
-TransactionSchema.index({ status: 1 });
-TransactionSchema.index({ method: 1 });
-TransactionSchema.index({ "purchaseData.customer.document": 1 });
-TransactionSchema.index({ "purchaseData.customer.email": 1 });
-TransactionSchema.index({ riskFlags: 1 });
-TransactionSchema.index({ idempotencyKey: 1 }, { unique: true, sparse: true });
 
 export const Transaction = mongoose.model<ITransaction>("Transaction", TransactionSchema);

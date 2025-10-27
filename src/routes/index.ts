@@ -1,6 +1,7 @@
+// src/routes/index.ts
 import { Router } from "express";
 
-// 📁 Importações de rotas
+// 📁 Importações de rotas principais
 import userRoutes from "./user.routes";
 import transactionRoutes from "./transaction.routes";
 import cashoutRoutes from "./cashout.routes";
@@ -14,11 +15,18 @@ import masterRoutes from "./master.routes";
 import sellerRoutes from "./seller.routes";
 import uploadRoutes from "./upload.routes";
 import subaccountRoutes from "./subaccount.routes";
-import reserveRoutes from "./reserve.routes"; // ✅ nova rota
+import reserveRoutes from "./reserve.routes";
+
+// ⚠️ Novos módulos de Risco / Antifraude
+import riskRoutes from "./risk.routes";
+import suspiciousRoutes from "./suspicious.routes";
+import scoreRoutes from "./score.routes";
 
 const router = Router();
 
-// 🌐 Rotas principais
+/* -------------------------------------------------------------------------- */
+/* 🌐 Rotas principais                                                        */
+/* -------------------------------------------------------------------------- */
 router.use("/users", userRoutes);
 router.use("/transactions", transactionRoutes);
 router.use("/cashout", cashoutRoutes);
@@ -32,9 +40,18 @@ router.use("/sellers", sellerRoutes);
 router.use("/subaccounts", subaccountRoutes);
 router.use("/upload", uploadRoutes);
 router.use("/master", masterRoutes);
-router.use("/reserve", reserveRoutes); // ✅ adicionado
+router.use("/reserve", reserveRoutes);
 
-// fallback
+/* -------------------------------------------------------------------------- */
+/* 🧠 Risco, Antifraude e Score                                               */
+/* -------------------------------------------------------------------------- */
+router.use("/risk", riskRoutes);           // regras antifraude e eventos
+router.use("/suspicious", suspiciousRoutes); // transações suspeitas
+router.use("/score", scoreRoutes);         // score de risco
+
+/* -------------------------------------------------------------------------- */
+/* 🚫 Rota fallback                                                           */
+/* -------------------------------------------------------------------------- */
 router.use("*", (_req, res) => {
   res.status(404).json({
     status: false,

@@ -1,17 +1,41 @@
 import { ITransaction, Transaction } from "../models/transaction.model";
 import axios from "axios";
-import { TransactionCardResponse, TransactionPayload, TransactionPixResponse } from "./transaction.type";
+import {
+  TransactionCardResponse,
+  TransactionPayload,
+  TransactionPixResponse,
+} from "./transaction.type";
 import { User } from "../models/user.model";
 import { GenerateSendIntegrations } from "./integration";
 import { Types } from "mongoose";
 
-const REFLOW_TOKEN = process.env.REFLOW_TOKEN as string;
+/* -------------------------------------------------------------------------- */
+/* ⚙️ CONFIGURAÇÃO - Kissa Pagamentos                                         */
+/* -------------------------------------------------------------------------- */
+const PAGARME_API_URL = process.env.PAGARME_API_URL || "https://api.pagar.me/1";
+const PAGARME_API_KEY = process.env.PAGARME_API_KEY || "";
 
-const mapStatusToLegacy = (status: "pending" | "approved" | "failed"): "pending" | "completed" | "failed" => {
-  return status === "approved" ? "completed" : status;
+/* -------------------------------------------------------------------------- */
+/* 🧩 STATUS MAP                                                              */
+/* -------------------------------------------------------------------------- */
+type LegacyStatus = "pending" | "completed" | "failed";
+
+const mapStatusToLegacy = (
+  status: "pending" | "approved" | "failed" | "refunded"
+): LegacyStatus => {
+  switch (status) {
+    case "approved":
+      return "completed";
+    case "failed":
+      return "failed";
+    default:
+      return "pending";
+  }
 };
 
-/* ------------------ 🪙 Criar transação PIX ------------------ */
+/* -------------------------------------------------------------------------- */
+/* 💰 CRIAÇÃO DE TRANSAÇÃO PIX                                               */
+/* -------------------------------------------------------------------------- */
 export const createReflowTransactionPix = async (
   payload: TransactionPayload
 ): Promise<TransactionPixResponse | null> => {
@@ -30,7 +54,6 @@ export const createReflowTransactionPix = async (
       amount: payload.value,
       fee,
       netAmount,
-      postback: payload.postback,
       status: "pending",
       method: "pix",
       purchaseData: {
@@ -49,36 +72,42 @@ export const createReflowTransactionPix = async (
     await GenerateSendIntegrations(user, transaction);
 
     const response = await axios.post(
-      "https://api.cashtime.com.br/v1/transactions",
+      `${PAGARME_API_URL}/transactions`,
       {
-        isInfoProducts: true,
-        externalCode: (transaction._id as Types.ObjectId).toString(),
-        paymentMethod: "pix",
-        installments: 1,
-        installmentFee: 1,
+        api_key: PAGARME_API_KEY,
+        amount: Math.round(payload.value * 100),
+        payment_method: "pix",
+        postback_url:
+          "https://api.kissapagamentos.com/api/transactions/webhook",
         customer: {
-          name: payload.customer?.name || "",
+          external_id: (transaction._id as Types.ObjectId).toString(),
+          name: payload.customer?.name || "Cliente Kissa",
+          type: "individual",
+          country: "br",
           email: payload.customer?.email || "",
-          document: payload.customer?.document?.number || "",
-          phone: payload.customer?.phone || "",
+          documents: [
+            {
+              type: "cpf",
+              number: payload.customer?.document?.number || "00000000000",
+            },
+          ],
+          phone_numbers: [payload.customer?.phone || ""],
         },
         items: [
           {
-            title: "Depósito em AgillePay",
-            description: "Agille Pay",
-            unitPrice: Math.round(payload.value * 100),
+            title: "Depósito Kissa Pagamentos",
+            unit_price: Math.round(payload.value * 100),
             quantity: 1,
             tangible: false,
           },
         ],
-        postbackUrl: "https://api.agillepay.com/api/transactions/webhook",
-        ip: payload.ip || "",
-      },
-      { headers: { "x-authorization-key": REFLOW_TOKEN } }
+      }
     );
 
-    const pixPayload = (response.data as any)?.pix?.payload;
-    if (!pixPayload) throw new Error("PIX code not found!");
+    const pixPayload =
+      (response.data?.pix_qr_code || response.data?.pix?.qrcode) ?? null;
+
+    if (!pixPayload) throw new Error("PIX não retornado pela adquirente.");
 
     return {
       transactionId: (transaction._id as Types.ObjectId).toString(),
@@ -87,12 +116,14 @@ export const createReflowTransactionPix = async (
       status: mapStatusToLegacy(transaction.status),
     };
   } catch (error) {
-    console.error("Erro em createReflowTransactionPix:", error);
+    console.error("❌ Erro em createReflowTransactionPix:", error);
     return null;
   }
 };
 
-/* ------------------ 💳 Criar transação cartão ------------------ */
+/* -------------------------------------------------------------------------- */
+/* 💳 CRIAÇÃO DE TRANSAÇÃO CARTÃO                                            */
+/* -------------------------------------------------------------------------- */
 export const createReflowTransactionCard = async (
   payload: TransactionPayload
 ): Promise<TransactionCardResponse | null> => {
@@ -100,8 +131,14 @@ export const createReflowTransactionCard = async (
     const user = await User.findById(payload.userId);
     if (!user) return null;
 
-    const fixedFee = user?.split?.cashIn?.creditCard?.fixed ?? user?.split?.cashIn?.pix?.fixed ?? 0;
-    const percentageFee = user?.split?.cashIn?.creditCard?.percentage ?? user?.split?.cashIn?.pix?.percentage ?? 0;
+    const fixedFee =
+      user?.split?.cashIn?.creditCard?.fixed ??
+      user?.split?.cashIn?.pix?.fixed ??
+      0;
+    const percentageFee =
+      user?.split?.cashIn?.creditCard?.percentage ??
+      user?.split?.cashIn?.pix?.percentage ??
+      0;
 
     const fee = fixedFee + (payload.value * percentageFee) / 100;
     const netAmount = payload.value - fee;
@@ -111,47 +148,62 @@ export const createReflowTransactionCard = async (
       amount: payload.value,
       fee,
       netAmount,
-      postback: payload.postback,
       status: "pending",
       method: "credit_card",
     });
 
     await transaction.save();
 
+    const expiration =
+      `${payload.card?.expirationMonth}${String(payload.card?.expirationYear).slice(-2)}` ||
+      "";
+
     const response = await axios.post(
-      "https://api.cashtime.com.br/v1/transactions",
+      `${PAGARME_API_URL}/transactions`,
       {
-        isInfoProducts: true,
-        externalCode: (transaction._id as Types.ObjectId).toString(),
-        paymentMethod: "credit_card",
-        installments: 1,
-        installmentFee: 1,
+        api_key: PAGARME_API_KEY,
+        amount: Math.round(payload.value * 100),
+        payment_method: "credit_card",
+        card_number: payload.card?.number,
+        card_cvv: payload.card?.cvv,
+        card_expiration_date: expiration,
+        card_holder_name: payload.card?.holderName,
+        postback_url:
+          "https://api.kissapagamentos.com/api/transactions/webhook",
         customer: {
-          name: payload.customer?.name || "",
+          external_id: (transaction._id as Types.ObjectId).toString(),
+          name: payload.customer?.name || "Cliente Kissa",
+          type: "individual",
+          country: "br",
           email: payload.customer?.email || "",
-          document: payload.customer?.document?.number || "",
-          phone: payload.customer?.phone || "",
+          documents: [
+            {
+              type: "cpf",
+              number: payload.customer?.document?.number || "00000000000",
+            },
+          ],
+          phone_numbers: [payload.customer?.phone || ""],
         },
-        card: payload.card,
         items: [
           {
-            title: "Depósito em AgillePay",
-            description: "Agille Pay",
-            unitPrice: Math.round(payload.value * 100),
+            title: "Depósito Kissa Pagamentos",
+            unit_price: Math.round(payload.value * 100),
             quantity: 1,
             tangible: false,
           },
         ],
-        postbackUrl: "https://api.agillepay.com/api/transactions/webhook",
-        ip: payload.ip || "",
-      },
-      { headers: { "x-authorization-key": REFLOW_TOKEN } }
+      }
     );
 
-    const statusPayload = (response.data as any)?.status || "pending";
-    transaction.status = ["pending", "approved", "failed"].includes(statusPayload)
-      ? (statusPayload as any)
-      : "pending";
+    const statusPayload =
+      (response.data?.status as "pending" | "paid" | "refused") || "pending";
+
+    transaction.status =
+      statusPayload === "paid"
+        ? "approved"
+        : statusPayload === "refused"
+        ? "failed"
+        : "pending";
 
     await transaction.save();
 
@@ -161,7 +213,7 @@ export const createReflowTransactionCard = async (
       status: mapStatusToLegacy(transaction.status),
     };
   } catch (error) {
-    console.error("Erro em createReflowTransactionCard:", error);
+    console.error("❌ Erro em createReflowTransactionCard:", error);
     return null;
   }
 };
