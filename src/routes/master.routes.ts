@@ -14,6 +14,9 @@ import {
 import { cacheMiddleware } from "../middleware/cache";
 import { verifyMasterToken } from "../middleware/MasterAuth";
 
+// 🔗 Importar controllers de KYC
+import { getAllKYCs, updateKYC } from "../controllers/kyc.controller";
+
 const router = Router();
 
 // ============================================
@@ -65,6 +68,20 @@ router.post("/transactions", verifyMasterToken, getAllTransactions);
  * Últimas 10 transações
  */
 router.post("/last-transactions", verifyMasterToken, getLastTransactions);
+
+/**
+ * 🔍 POST /api/master/kycs
+ * Lista todos os KYCs pendentes/aprovados/rejeitados
+ * (Controller vem do kyc.controller.ts)
+ */
+router.post("/kycs", verifyMasterToken, getAllKYCs);
+
+/**
+ * ✏️ POST /api/master/kyc/update
+ * Atualiza status de um KYC
+ * (Controller vem do kyc.controller.ts)
+ */
+router.post("/kyc/update", verifyMasterToken, updateKYC);
 
 /**
  * ✏️ POST /api/master/user/update
