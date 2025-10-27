@@ -80,6 +80,14 @@ export const getKpas = async (_req: Request, res: Response): Promise<void> => {
     // 📤 Resposta final
     res.status(200).json({
       status: true,
+      volumeTotal,
+      volumeToday: volumeHoje,
+      userVolumeTotal: totalUsuarios,
+      userVolumeToday: usuariosHoje,
+      taxVolumeTotal: totalTaxas,
+      taxVolumeMonthly: taxasMensais,
+      conversionRateTotal: taxaConversao,
+      conversionRateMonthly: taxaConversao,
       metrics: {
         volumeTotal,
         volumeHoje,
@@ -138,5 +146,141 @@ export const getMostSaleProducts = async (_req: Request, res: Response): Promise
   } catch (error) {
     console.error("❌ Erro em getMostSaleProducts:", error);
     res.status(500).json({ status: false, msg: "Erro interno ao buscar top produtos." });
+  }
+};
+
+/**
+ * 👥 Listar todos os usuários
+ */
+export const getAllUsers = async (_req: Request, res: Response): Promise<void> => {
+  try {
+    const users = await User.find().select('-password').lean();
+    res.status(200).json({ status: true, users });
+  } catch (error) {
+    console.error("❌ Erro em getAllUsers:", error);
+    res.status(500).json({ status: false, msg: "Erro ao buscar usuários." });
+  }
+};
+
+/**
+ * 💳 Listar todas as transações
+ */
+export const getAllTransactions = async (_req: Request, res: Response): Promise<void> => {
+  try {
+    const transactions = await Transaction.find().sort({ createdAt: -1 }).lean();
+    res.status(200).json({ status: true, transactions });
+  } catch (error) {
+    console.error("❌ Erro em getAllTransactions:", error);
+    res.status(500).json({ status: false, msg: "Erro ao buscar transações." });
+  }
+};
+
+/**
+ * 📜 Últimas 10 transações
+ */
+export const getLastTransactions = async (_req: Request, res: Response): Promise<void> => {
+  try {
+    const transactions = await Transaction.find()
+      .sort({ createdAt: -1 })
+      .limit(10)
+      .lean();
+    res.status(200).json({ status: true, transactions });
+  } catch (error) {
+    console.error("❌ Erro em getLastTransactions:", error);
+    res.status(500).json({ status: false, msg: "Erro ao buscar transações." });
+  }
+};
+
+/**
+ * ✏️ Atualizar usuário
+ */
+export const updateUser = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userData = req.body;
+    const { _id, ...updateData } = userData;
+
+    const user = await User.findByIdAndUpdate(
+      _id,
+      { $set: { ...updateData, updatedAt: new Date() } },
+      { new: true }
+    ).select('-password');
+
+    if (!user) {
+      res.status(404).json({ status: false, msg: "Usuário não encontrado." });
+      return;
+    }
+
+    res.status(200).json({ status: true, msg: "Usuário atualizado com sucesso.", user });
+  } catch (error) {
+    console.error("❌ Erro em updateUser:", error);
+    res.status(500).json({ status: false, msg: "Erro ao atualizar usuário." });
+  }
+};
+
+/**
+ * ✅ Aprovar saque
+ */
+export const approveWithdrawal = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { id } = req.body;
+
+    const transaction = await Transaction.findByIdAndUpdate(
+      id,
+      { 
+        $set: { 
+          status: 'completed',
+          updatedAt: new Date()
+        } 
+      },
+      { new: true }
+    );
+
+    if (!transaction) {
+      res.status(404).json({ status: false, msg: "Transação não encontrada." });
+      return;
+    }
+
+    res.status(200).json({ status: true, msg: "Saque aprovado com sucesso.", transaction });
+  } catch (error) {
+    console.error("❌ Erro em approveWithdrawal:", error);
+    res.status(500).json({ status: false, msg: "Erro ao aprovar saque." });
+  }
+};
+
+/**
+ * ❌ Rejeitar saque
+ */
+export const declineWithdrawal = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { id } = req.body;
+
+    const transaction = await Transaction.findByIdAndUpdate(
+      id,
+      { 
+        $set: { 
+          status: 'failed',
+          updatedAt: new Date()
+        } 
+      },
+      { new: true }
+    );
+
+    if (!transaction) {
+      res.status(404).json({ status: false, msg: "Transação não encontrada." });
+      return;
+    }
+
+    // TODO: Devolver o valor para o saldo do usuário
+    if (transaction.userId) {
+      await User.findByIdAndUpdate(
+        transaction.userId,
+        { $inc: { balance: transaction.amount } }
+      );
+    }
+
+    res.status(200).json({ status: true, msg: "Saque rejeitado com sucesso.", transaction });
+  } catch (error) {
+    console.error("❌ Erro em declineWithdrawal:", error);
+    res.status(500).json({ status: false, msg: "Erro ao rejeitar saque." });
   }
 };

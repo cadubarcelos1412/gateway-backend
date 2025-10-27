@@ -39,7 +39,7 @@
     "pdfkit": "^0.17.2",
     "stripe": "^19.1.0",
     "swagger-autogen": "^2.23.7",
-    "swagger-jsdoc": "^6.2.8",
+    "swagger-jsdoc": "^3.7.0",
     "swagger-ui-express": "^5.0.1",
     "uuid": "^11.0.5",
     "zod": "^4.1.12"

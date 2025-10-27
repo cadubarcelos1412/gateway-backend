@@ -7,35 +7,23 @@ const express_1 = __importDefault(require("express"));
 const dotenv_1 = __importDefault(require("dotenv"));
 const cors_1 = __importDefault(require("cors"));
 const database_1 = require("./config/database");
-const routes_1 = __importDefault(require("./routes")); // 📦 Importa automaticamente todas as rotas do index.ts em /routes
-// 🧪 Carrega variáveis de ambiente
+const routes_1 = __importDefault(require("./routes"));
+const swagger_ui_express_1 = __importDefault(require("swagger-ui-express"));
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const swaggerFile = require("../swagger-output.json");
 dotenv_1.default.config();
-// 🚀 Inicializa a aplicação Express
 const app = (0, express_1.default)();
 const PORT = process.env.PORT || 3000;
-/* -------------------------------------------------------
-🧰 Middlewares globais
--------------------------------------------------------- */
-app.use((0, cors_1.default)()); // 🔓 Libera acesso ao front-end (ajuste origins se quiser mais segurança)
-app.use(express_1.default.json()); // 📦 Permite receber JSON no corpo das requisições
-/* -------------------------------------------------------
-🔌 Conexão com o banco de dados MongoDB
--------------------------------------------------------- */
+app.use((0, cors_1.default)());
+app.use(express_1.default.json());
 (0, database_1.connectDB)();
-/* -------------------------------------------------------
-🛣️ Registro das rotas principais
--------------------------------------------------------- */
-// Todas as rotas da aplicação estão centralizadas no arquivo /routes/index.ts
 app.use("/api", routes_1.default);
-/* -------------------------------------------------------
-🌐 Rota base - verificação rápida do status da API
--------------------------------------------------------- */
+// 📘 Documentação Swagger
+app.use("/docs", swagger_ui_express_1.default.serve, swagger_ui_express_1.default.setup(swaggerFile));
 app.get("/", (_req, res) => {
     res.status(200).send("🚀 API do Gateway rodando com sucesso!");
 });
-/* -------------------------------------------------------
-🚀 Inicialização do servidor
--------------------------------------------------------- */
 app.listen(PORT, () => {
     console.log(`✅ Servidor rodando na porta ${PORT}`);
+    console.log(`📘 Documentação disponível em: http://localhost:${PORT}/docs`);
 });
