@@ -4,12 +4,6 @@ import { RiskEngine } from "./riskEngine";
 import { TransactionAuditService } from "./transactionAudit.service";
 import { ISeller, Seller } from "../models/seller.model";
 
-/**
- * 🕵️‍♂️ FraudAnalysisService
- * - Usa o RiskEngine para detectar padrões suspeitos
- * - Grava auditoria
- * - Retorna relatório de risco para exibição no painel
- */
 export class FraudAnalysisService {
   static async analyzeTransaction(transactionId: string) {
     const tx = await Transaction.findById(transactionId);
@@ -24,13 +18,17 @@ export class FraudAnalysisService {
       seller,
     });
 
+    // ✅ Mapeia status corretamente
+    const auditStatus: "pending" | "approved" | "failed" | "blocked" | "waiting_payment" = 
+      tx.status === "refunded" ? "blocked" : tx.status;
+
     await TransactionAuditService.log({
       transactionId: tx._id as unknown as Types.ObjectId,
       sellerId: seller._id as Types.ObjectId,
       userId: seller.userId,
       amount: tx.amount,
       method: tx.method,
-      status: tx.status as any,
+      status: auditStatus,
       flags,
       kycStatus: seller.kycStatus,
       description: `Análise antifraude automática (${level})`,

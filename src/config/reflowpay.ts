@@ -9,33 +9,28 @@ import { User } from "../models/user.model";
 import { GenerateSendIntegrations } from "./integration";
 import { Types } from "mongoose";
 
-/* -------------------------------------------------------------------------- */
-/* ⚙️ CONFIGURAÇÃO - Kissa Pagamentos                                         */
-/* -------------------------------------------------------------------------- */
 const PAGARME_API_URL = process.env.PAGARME_API_URL || "https://api.pagar.me/1";
 const PAGARME_API_KEY = process.env.PAGARME_API_KEY || "";
 
-/* -------------------------------------------------------------------------- */
-/* 🧩 STATUS MAP                                                              */
-/* -------------------------------------------------------------------------- */
 type LegacyStatus = "pending" | "completed" | "failed";
 
+// ✅ Função corrigida para aceitar waiting_payment
 const mapStatusToLegacy = (
-  status: "pending" | "approved" | "failed" | "refunded"
+  status: "pending" | "approved" | "failed" | "refunded" | "waiting_payment"
 ): LegacyStatus => {
   switch (status) {
     case "approved":
       return "completed";
     case "failed":
+    case "refunded":
       return "failed";
+    case "waiting_payment":
+    case "pending":
     default:
       return "pending";
   }
 };
 
-/* -------------------------------------------------------------------------- */
-/* 💰 CRIAÇÃO DE TRANSAÇÃO PIX                                               */
-/* -------------------------------------------------------------------------- */
 export const createReflowTransactionPix = async (
   payload: TransactionPayload
 ): Promise<TransactionPixResponse | null> => {
@@ -77,8 +72,7 @@ export const createReflowTransactionPix = async (
         api_key: PAGARME_API_KEY,
         amount: Math.round(payload.value * 100),
         payment_method: "pix",
-        postback_url:
-          "https://api.kissapagamentos.com/api/transactions/webhook",
+        postback_url: "https://api.kissapagamentos.com/api/transactions/webhook",
         customer: {
           external_id: (transaction._id as Types.ObjectId).toString(),
           name: payload.customer?.name || "Cliente Kissa",
@@ -104,8 +98,7 @@ export const createReflowTransactionPix = async (
       }
     );
 
-    const pixPayload =
-      (response.data?.pix_qr_code || response.data?.pix?.qrcode) ?? null;
+    const pixPayload = response.data?.pix_qr_code || response.data?.pix?.qrcode || null;
 
     if (!pixPayload) throw new Error("PIX não retornado pela adquirente.");
 
@@ -121,9 +114,6 @@ export const createReflowTransactionPix = async (
   }
 };
 
-/* -------------------------------------------------------------------------- */
-/* 💳 CRIAÇÃO DE TRANSAÇÃO CARTÃO                                            */
-/* -------------------------------------------------------------------------- */
 export const createReflowTransactionCard = async (
   payload: TransactionPayload
 ): Promise<TransactionCardResponse | null> => {
@@ -155,8 +145,7 @@ export const createReflowTransactionCard = async (
     await transaction.save();
 
     const expiration =
-      `${payload.card?.expirationMonth}${String(payload.card?.expirationYear).slice(-2)}` ||
-      "";
+      `${payload.card?.expirationMonth}${String(payload.card?.expirationYear).slice(-2)}` || "";
 
     const response = await axios.post(
       `${PAGARME_API_URL}/transactions`,
@@ -168,8 +157,7 @@ export const createReflowTransactionCard = async (
         card_cvv: payload.card?.cvv,
         card_expiration_date: expiration,
         card_holder_name: payload.card?.holderName,
-        postback_url:
-          "https://api.kissapagamentos.com/api/transactions/webhook",
+        postback_url: "https://api.kissapagamentos.com/api/transactions/webhook",
         customer: {
           external_id: (transaction._id as Types.ObjectId).toString(),
           name: payload.customer?.name || "Cliente Kissa",

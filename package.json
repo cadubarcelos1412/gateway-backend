@@ -1,15 +1,20 @@
 {
   "name": "kissa-pagamentos",
-  "version": "1.0",
-  "description": "Backend do gateway de pagamentos com arquitetura de subadquirente",
+  "version": "1.0.0",
+  "description": "Backend do gateway de pagamentos com arquitetura de subadquirente (KissaPay)",
   "main": "dist/server.js",
   "scripts": {
     "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
     "build": "tsc && npx copyfiles swagger-output.json dist/",
-    "start": "node dist/server.js"
+    "start": "node dist/server.js",
+    "generate-token": "ts-node -r dotenv/config src/scripts/generate-token.ts",
+    "pagarme-test": "ts-node -r dotenv/config src/scripts/pagarme-test.ts",
+    "pagarme-v5-test": "ts-node -r dotenv/config src/scripts/pagarme-v5-test.ts",
+    "lint": "tsc --noEmit",
+    "swagger": "npx swagger-autogen swagger-output.json ./src/routes/*.ts"
   },
   "engines": {
-    "node": ">=18.x"
+    "node": ">=18.0.0"
   },
   "license": "ISC",
   "keywords": [
@@ -17,10 +22,13 @@
     "pagamentos",
     "subadquirente",
     "api",
+    "kissa",
+    "kissapay",
     "nodejs",
     "typescript"
   ],
   "dependencies": {
+    "axios": "^1.7.9",
     "bcrypt": "^5.1.1",
     "bcryptjs": "^3.0.2",
     "cloudinary": "^2.7.0",
@@ -60,7 +68,6 @@
     "@types/stripe": "^8.0.416",
     "@types/swagger-jsdoc": "^6.0.4",
     "@types/swagger-ui-express": "^4.1.8",
-    "axios": "^1.7.9",
     "copyfiles": "^2.4.1",
     "nodemon": "^3.1.9",
     "ts-node": "^10.9.2",

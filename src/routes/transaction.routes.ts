@@ -1,17 +1,18 @@
-// src/routes/transaction.routes.ts
 import express, { Router, Request, Response, NextFunction } from "express";
 import {
   createTransaction,
   consultTransactionByID,
-  webhookTransaction,
+  webhookTransaction, // 🔧 Webhook interno (legacy)
 } from "../controllers/transaction.controller";
+
+import { pagarmeWebhook } from "../controllers/transaction.webhook.controller";
 import { requireApprovedKyc } from "../middleware/kycGuard";
 import { transactionLogger } from "../middleware/transactionLogger";
 
 const router = Router();
 
 /* -------------------------------------------------------------------------- */
-/* 🧪 Middleware – Validação de criação de transação                          */
+/* 🧩 Middleware – Validação de criação de transação                          */
 /* -------------------------------------------------------------------------- */
 const validateCreateTransaction = (
   req: Request,
@@ -33,11 +34,7 @@ const validateCreateTransaction = (
     return;
   }
 
-  if (
-    !description ||
-    typeof description !== "string" ||
-    description.trim().length < 3
-  ) {
+  if (!description || typeof description !== "string" || description.trim().length < 3) {
     res.status(400).json({
       status: false,
       msg: "Campo 'description' obrigatório e deve ter pelo menos 3 caracteres.",
@@ -46,9 +43,7 @@ const validateCreateTransaction = (
   }
 
   if (!productId || typeof productId !== "string") {
-    res
-      .status(400)
-      .json({ status: false, msg: "Campo 'productId' obrigatório." });
+    res.status(400).json({ status: false, msg: "Campo 'productId' obrigatório." });
     return;
   }
 
@@ -70,13 +65,13 @@ const validateCreateTransaction = (
 };
 
 /* -------------------------------------------------------------------------- */
-/* 💳 Criar transação real (multiadquirente)                                 */
+/* 💳 Criar transação real (Multiadquirente – Enterprise)                     */
 /* -------------------------------------------------------------------------- */
 /**
  * - Exige KYC aprovado
  * - Valida payload
  * - Loga tentativa
- * - Encaminha para adquirente correta (Pagar.me)
+ * - Encaminha para adquirente correta (Pagar.me, KissaGateway, etc)
  */
 router.post(
   "/create",
@@ -87,28 +82,51 @@ router.post(
 );
 
 /* -------------------------------------------------------------------------- */
-/* 🔎 Consultar transação por ID                                              */
+/* 🔍 Consultar transação por ID                                              */
 /* -------------------------------------------------------------------------- */
 /**
- * - Retorna todos os dados da transação pelo `_id`
- * - Inclui flags, retenção e purchaseData
+ * Retorna todos os dados da transação pelo `_id`
+ * Inclui flags, retenção, status e dados de antifraude.
  */
 router.get(
   "/consult",
-  (req: Request, res: Response): Promise<void> =>
-    consultTransactionByID(req, res)
+  (req: Request, res: Response): Promise<void> => consultTransactionByID(req, res)
 );
 
 /* -------------------------------------------------------------------------- */
-/* 📡 Webhook – Pagar.me                                                      */
+/* 📡 Webhook – Interno (Legacy / Sandbox)                                   */
 /* -------------------------------------------------------------------------- */
 /**
- * - Atualiza status da transação com base no externalId
- * - Exige assinatura HMAC válida (`x-hub-signature`)
+ * - Mantido para compatibilidade com o fluxo legado
+ * - Usado em ambiente de testes e integrações locais
  */
 router.post(
   "/webhook",
   (req: Request, res: Response): Promise<void> => webhookTransaction(req, res)
 );
+
+/* -------------------------------------------------------------------------- */
+/* 🔔 Webhook – Pagar.me → Kissa Pagamentos                                  */
+/* -------------------------------------------------------------------------- */
+/**
+ * - Atualiza status de transações reais processadas pela Pagar.me
+ * - Valida assinatura HMAC (header `x-hub-signature`)
+ * - Atualiza status → [pending, approved, failed, refunded]
+ * - Gera registro de auditoria antifraude
+ */
+router.post(
+  "/webhook/pagarme",
+  (req: Request, res: Response): Promise<void> => pagarmeWebhook(req, res)
+);
+
+/* -------------------------------------------------------------------------- */
+/* ⚠️ Rota fallback                                                          */
+/* -------------------------------------------------------------------------- */
+router.use("*", (_req, res) => {
+  res.status(404).json({
+    status: false,
+    msg: "Rota de transação não encontrada. Verifique o endpoint.",
+  });
+});
 
 export default router;

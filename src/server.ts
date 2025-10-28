@@ -1,24 +1,67 @@
 // src/server.ts
-import express, { Application } from "express";
+import express, { Application, Request, Response } from "express";
 import mongoose from "mongoose";
 import dotenv from "dotenv";
 import cors from "cors";
 import router from "./routes/index";
+import swaggerUi from "swagger-ui-express";
 
 // 📘 Carrega variáveis de ambiente
 dotenv.config();
+
+const swaggerFile = require("../swagger-output.json");
 
 // 🧩 Inicializa o app Express
 const app: Application = express();
 app.use(cors());
 app.use(express.json());
-
-// 🌐 Rotas principais da API
-app.use("/api", router);
+app.use(express.urlencoded({ extended: true }));
 
 // 🔧 Configurações
 const PORT = process.env.PORT || 3000;
 const MONGO_URI = process.env.MONGO_URI || "";
+
+// 🏠 Rota raiz
+app.get("/", (_req: Request, res: Response) => {
+  res.status(200).json({
+    message: "🚀 API do Gateway rodando com sucesso!",
+    version: "2.0.0",
+    endpoints: {
+      docs: "/docs",
+      health: "/health",
+      payments: "/api/payments",
+      webhooks: "/api/webhooks",
+      api: "/api"
+    }
+  });
+});
+
+// 🏥 Health check
+app.get("/health", (_req: Request, res: Response) => {
+  res.status(200).json({
+    status: "healthy",
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime(),
+    environment: process.env.NODE_ENV || "development",
+    mongodb: mongoose.connection.readyState === 1 ? "connected" : "disconnected"
+  });
+});
+
+// 📘 Documentação Swagger
+app.use("/docs", swaggerUi.serve, swaggerUi.setup(swaggerFile));
+
+// 🌐 Rotas principais da API
+app.use("/api", router);
+
+// 🚨 Error handler
+app.use((err: any, _req: Request, res: Response, _next: any) => {
+  console.error("❌ Erro não tratado:", err);
+  res.status(500).json({
+    success: false,
+    message: "Erro interno do servidor",
+    error: process.env.NODE_ENV === "development" ? err.message : undefined
+  });
+});
 
 // 🧠 Função principal de inicialização
 async function startServer(): Promise<void> {
@@ -33,8 +76,17 @@ async function startServer(): Promise<void> {
 
     // 🚀 Inicializa o servidor
     app.listen(PORT, () => {
-      console.log(`🌍  KissaPagamentos v1.0 rodando na porta ${PORT}`);
-      console.log(`📡  Endpoint base: http://localhost:${PORT}/api`);
+      const baseUrl = process.env.BASE_URL || `http://localhost:${PORT}`;
+      
+      console.log('╔════════════════════════════════════════════════╗');
+      console.log('║  🚀 KissaPagamentos Gateway v2.0              ║');
+      console.log('║                                                ║');
+      console.log(`║  🌐 URL: ${baseUrl.padEnd(38)} ║`);
+      console.log(`║  📘 Docs: ${(baseUrl + '/docs').padEnd(35)} ║`);
+      console.log(`║  🏥 Health: ${(baseUrl + '/health').padEnd(33)} ║`);
+      console.log(`║  🔧 Ambiente: ${(process.env.NODE_ENV || 'development').padEnd(31)} ║`);
+      console.log('║                                                ║');
+      console.log('╚════════════════════════════════════════════════╝');
     });
 
     // ⏰ Carrega agendador de conciliação diária (T+1 Proof of Settlement)
@@ -42,10 +94,6 @@ async function startServer(): Promise<void> {
       .then(() => console.log("⏱️  Agendador diário carregado com sucesso."))
       .catch((err) => console.error("⚠️  Erro ao carregar agendador diário:", err));
 
-    // 🧾 (Opcional) Swagger — documentação automática
-    // import { setupSwagger } from "./swagger";
-    // setupSwagger(app);
-    // console.log("📘 Documentação Swagger disponível em /docs");
   } catch (error: any) {
     console.error("💥 Erro crítico na inicialização:", error.message || error);
     process.exit(1);
@@ -54,3 +102,5 @@ async function startServer(): Promise<void> {
 
 // ▶️ Execução
 startServer();
+
+export default app;

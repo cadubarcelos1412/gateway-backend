@@ -1,0 +1,123 @@
+{
+  "info": {
+    "name": "Pagar.me API v5",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Criar Pedido PIX",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"amount\": 10000,\n  \"currency\": \"BRL\",\n  \"customer\": {\n    \"name\": \"João da Silva\",\n    \"email\": \"joao.silva@example.com\",\n    \"document\": \"67584739024\",\n    \"type\": \"individual\",\n    \"document_type\": \"CPF\",\n    \"phones\": {\n      \"mobile_phone\": {\n        \"country_code\": \"55\",\n        \"area_code\": \"11\",\n        \"number\": \"999999999\"\n      }\n    }\n  },\n  \"items\": [\n    {\n      \"amount\": 10000,\n      \"description\": \"Produto Teste PIX\",\n      \"quantity\": 1,\n      \"code\": \"PROD001\"\n    }\n  ],\n  \"payments\": [\n    {\n      \"payment_method\": \"pix\",\n      \"pix\": {\n        \"expires_in\": 3600\n      }\n    }\n  ]\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "https://api.pagar.me/core/v5/orders",
+          "protocol": "https",
+          "host": ["api", "pagar", "me"],
+          "path": ["core", "v5", "orders"]
+        },
+        "auth": {
+          "type": "basic",
+          "basic": [
+            {
+              "key": "username",
+              "value": "sk_test_7a54a54ab7d34e0d9e8626137f1bc993",
+              "type": "string"
+            },
+            {
+              "key": "password",
+              "value": "",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Listar Pedidos",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "https://api.pagar.me/core/v5/orders",
+          "protocol": "https",
+          "host": ["api", "pagar", "me"],
+          "path": ["core", "v5", "orders"]
+        },
+        "auth": {
+          "type": "basic",
+          "basic": [
+            {
+              "key": "username",
+              "value": "sk_test_7a54a54ab7d34e0d9e8626137f1bc993",
+              "type": "string"
+            },
+            {
+              "key": "password",
+              "value": "",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Criar Pedido Cartão de Crédito",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"amount\": 10000,\n  \"currency\": \"BRL\",\n  \"customer\": {\n    \"name\": \"João da Silva\",\n    \"email\": \"joao.silva@example.com\",\n    \"document\": \"67584739024\",\n    \"type\": \"individual\",\n    \"document_type\": \"CPF\",\n    \"phones\": {\n      \"mobile_phone\": {\n        \"country_code\": \"55\",\n        \"area_code\": \"11\",\n        \"number\": \"999999999\"\n      }\n    }\n  },\n  \"items\": [\n    {\n      \"amount\": 10000,\n      \"description\": \"Produto Teste Cartão\",\n      \"quantity\": 1,\n      \"code\": \"PROD001\"\n    }\n  ],\n  \"payments\": [\n    {\n      \"payment_method\": \"credit_card\",\n      \"credit_card\": {\n        \"installments\": 1,\n        \"statement_descriptor\": \"TESTE\",\n        \"card\": {\n          \"number\": \"4111111111111111\",\n          \"holder_name\": \"JOAO DA SILVA\",\n          \"exp_month\": 12,\n          \"exp_year\": 2030,\n          \"cvv\": \"123\"\n        }\n      }\n    }\n  ]\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "https://api.pagar.me/core/v5/orders",
+          "protocol": "https",
+          "host": ["api", "pagar", "me"],
+          "path": ["core", "v5", "orders"]
+        },
+        "auth": {
+          "type": "basic",
+          "basic": [
+            {
+              "key": "username",
+              "value": "sk_test_7a54a54ab7d34e0d9e8626137f1bc993",
+              "type": "string"
+            },
+            {
+              "key": "password",
+              "value": "",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "response": []
+    }
+  ]
+}

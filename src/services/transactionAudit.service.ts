@@ -7,8 +7,8 @@ export interface AuditData {
   sellerId: Types.ObjectId;
   userId: Types.ObjectId;
   amount: number;
-  method: "pix" | "credit_card" | "boleto";
-  status: "pending" | "approved" | "failed" | "blocked";
+  method: "pix" | "credit_card" | "boleto" | "debit_card"; // ✅ Adicionado debit_card
+  status: "pending" | "approved" | "failed" | "blocked" | "waiting_payment"; // ✅ Adicionado waiting_payment
   kycStatus: string;
   ipAddress?: string;
   userAgent?: string;
@@ -16,7 +16,7 @@ export interface AuditData {
   flags: RiskFlag[];
   description?: string;
   riskLevel?: RiskLevel;
-  riskScore?: number; // ✅ adicionado para consistência
+  riskScore?: number;
   retentionAmount?: number;
   retentionDays?: number;
 }
@@ -24,8 +24,6 @@ export interface AuditData {
 export class TransactionAuditService {
   /**
    * 🧾 Cria um registro de auditoria detalhado da transação
-   * - Calcula automaticamente o riskScore com base no nível de risco
-   * - Pode ser usada tanto em logs de falha quanto de sucesso
    */
   static async log(data: AuditData) {
     const riskScore =
@@ -53,8 +51,7 @@ export class TransactionAuditService {
   }
 
   /**
-   * 📊 Busca tentativas anteriores associadas ao mesmo comprador ou IP
-   * - Útil para análise de padrões de fraude e score dinâmico
+   * 📊 Busca tentativas anteriores
    */
   static async getHistoricalAttempts(
     buyerDocument?: string,

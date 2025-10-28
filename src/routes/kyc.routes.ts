@@ -4,7 +4,7 @@ import {
   updateKYC,
   uploadKYCDocuments,
   getKYCStats
-} from "../controllers/kyc.controller"; // ✅ IMPORTAR DO kyc.controller
+} from "../controllers/kyc.controller";
 import { verifyMasterToken } from "../middleware/MasterAuth";
 
 const router = Router();
