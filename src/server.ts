@@ -17,20 +17,40 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 /* -------------------------------------------------------------------------- */
-/* 🌐 CORS dinâmico e tipagem corrigida                                       */
+/* 🌐 CORS - LIBERADO PARA DESENVOLVIMENTO E PRODUÇÃO                        */
 /* -------------------------------------------------------------------------- */
-const allowedOrigins: string[] =
-  process.env.NODE_ENV === "production"
-    ? [process.env.BASE_URL || ""].filter(Boolean)
-    : ["http://localhost:5173", "http://127.0.0.1:5173"];
+const allowedOrigins: string[] = [
+  "http://localhost:5173",
+  "http://127.0.0.1:5173",
+  "http://localhost:3000",
+  "http://localhost:5000",
+  "https://web-production-db663.up.railway.app",
+  process.env.BASE_URL || "",
+  process.env.FRONTEND_URL || ""
+].filter(Boolean);
 
 app.use(
   cors({
-    origin: allowedOrigins as (string | RegExp)[], // ✅ Corrige o tipo exigido
-    methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
+    origin: (origin, callback) => {
+      // Permite requisições sem origin (Postman, mobile apps, etc)
+      if (!origin) return callback(null, true);
+      
+      if (allowedOrigins.indexOf(origin) !== -1 || process.env.NODE_ENV === 'development') {
+        callback(null, true);
+      } else {
+        callback(new Error('Not allowed by CORS'));
+      }
+    },
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     credentials: true,
+    allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
+    exposedHeaders: ["Content-Range", "X-Content-Range"],
+    maxAge: 86400 // 24 horas
   })
 );
+
+// Preflight requests
+app.options('*', cors());
 
 /* -------------------------------------------------------------------------- */
 /* ⚙️ Variáveis principais                                                    */
@@ -127,19 +147,19 @@ async function startServer(): Promise<void> {
     // 🚀 Inicializa servidor
     app.listen(PORT, () => {
       console.log(`
-╔═══════════════════════════════════════════════════════════╗
-║  🚀 KissaPagamentos Gateway v2.0                          ║
-║                                                           ║
-║  🌐 URL: ${BASE_URL.padEnd(50, " ")}║
-║  📘 Docs: ${(BASE_URL + "/docs").padEnd(47, " ")}║
-║  🏥 Health: ${(BASE_URL + "/health").padEnd(45, " ")}║
-║  🔧 Ambiente: ${ENV.padEnd(44, " ")}║
-║                                                           ║
-╚═══════════════════════════════════════════════════════════╝
+╔════════════════════════════════════════════════╗
+║  🚀 KissaPagamentos Gateway v2.0              ║
+║                                                ║
+║  🌐 URL: ${BASE_URL.padEnd(38, " ")}║
+║  📘 Docs: ${(BASE_URL + "/docs").padEnd(35, " ")}║
+║  🏥 Health: ${(BASE_URL + "/health").padEnd(33, " ")}║
+║  🔧 Ambiente: ${ENV.padEnd(32, " ")}║
+║                                                ║
+╚════════════════════════════════════════════════╝
       `);
     });
 
-    // ⏰ Agendador T+1 (somente produção)
+    // ⏰ Agendador T+1
     if (ENV === "production") {
       import("./scripts/dailyProofCron")
         .then(() => console.log("⏱️  Agendador diário (T+1) ativo."))
