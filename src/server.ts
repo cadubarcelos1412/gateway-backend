@@ -5,11 +5,22 @@ import dotenv from "dotenv";
 import cors from "cors";
 import router from "./routes/index";
 import swaggerUi from "swagger-ui-express";
+import fs from "fs";
+import path from "path";
 
 // 📘 Carrega variáveis de ambiente
 dotenv.config();
 
-const swaggerFile = require("../swagger-output.json");
+// ⚙️ Carrega o Swagger (apenas se o arquivo existir)
+let swaggerFile: any = null;
+const swaggerPath = path.resolve(__dirname, "../swagger-output.json");
+
+if (fs.existsSync(swaggerPath)) {
+  swaggerFile = require(swaggerPath);
+  console.log("📘 Swagger carregado com sucesso.");
+} else {
+  console.warn("⚠️  Swagger não encontrado — ignorando documentação.");
+}
 
 // 🧩 Inicializa o app Express
 const app: Application = express();
@@ -47,8 +58,10 @@ app.get("/health", (_req: Request, res: Response) => {
   });
 });
 
-// 📘 Documentação Swagger
-app.use("/docs", swaggerUi.serve, swaggerUi.setup(swaggerFile));
+// 📘 Documentação Swagger (somente se disponível)
+if (swaggerFile) {
+  app.use("/docs", swaggerUi.serve, swaggerUi.setup(swaggerFile));
+}
 
 // 🌐 Rotas principais da API
 app.use("/api", router);
@@ -66,9 +79,7 @@ app.use((err: any, _req: Request, res: Response, _next: any) => {
 // 🧠 Função principal de inicialização
 async function startServer(): Promise<void> {
   try {
-    if (!MONGO_URI) {
-      throw new Error("❌ Variável MONGO_URI ausente no arquivo .env");
-    }
+    if (!MONGO_URI) throw new Error("❌ Variável MONGO_URI ausente no arquivo .env");
 
     console.log("🔌 Conectando ao MongoDB...");
     await mongoose.connect(MONGO_URI);
@@ -89,7 +100,7 @@ async function startServer(): Promise<void> {
       console.log('╚════════════════════════════════════════════════╝');
     });
 
-    // ⏰ Carrega agendador de conciliação diária (T+1 Proof of Settlement)
+    // ⏰ Agendador diário (Proof of Settlement T+1)
     import("./scripts/dailyProofCron")
       .then(() => console.log("⏱️  Agendador diário carregado com sucesso."))
       .catch((err) => console.error("⚠️  Erro ao carregar agendador diário:", err));

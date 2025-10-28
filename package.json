@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
     "clean": "rimraf dist",
-    "build": "npm run clean && tsc && if exist swagger-output.json ( npx copyfiles swagger-output.json dist/ )",
+    "prebuild": "npm run clean",
+    "build": "npm run prebuild && tsc && node ./scripts/postbuild.js",
     "start": "node dist/server.js",
     "generate-token": "ts-node -r dotenv/config src/scripts/generate-token.ts",
     "pagarme-test": "ts-node -r dotenv/config src/scripts/pagarme-test.ts",

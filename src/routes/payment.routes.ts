@@ -1,9 +1,11 @@
-import { Router } from 'express';
-import { createPixPayment } from '../controllers/payment.controller';
+// src/routes/payment.routes.ts
+import { Router } from "express";
+import { createPixPayment } from "../controllers/payment.controller";
 
 const router = Router();
 
-// POST /api/payments/pix
-router.post('/pix', createPixPayment);
+// 💳 Pagamento PIX (Pagar.me V5)
+router.post("/pix", createPixPayment);
 
+// ✅ Exportação padrão (necessária para o import default do index.ts)
 export default router;

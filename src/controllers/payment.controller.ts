@@ -1,116 +1,103 @@
 import { Request, Response } from "express";
-import axios from 'axios';
-import { Transaction } from '../models/transaction.model';
+import axios, { AxiosError } from "axios";
 
-export const createPixPayment = async (req: Request, res: Response): Promise<void> => {
+/** Tipagem esperada do corpo da requisição PIX */
+interface PixPaymentRequest {
+  amount: number;
+  customer: {
+    name: string;
+    email: string;
+    document: string;
+  };
+  items: {
+    amount: number;
+    description: string;
+    quantity: number;
+    code: string;
+  }[];
+}
+
+/**
+ * Cria um pagamento PIX via Pagar.me V5 (Core API)
+ * Docs oficiais: https://docs.pagar.me/reference/criar-pagamento
+ */
+export async function createPixPayment(req: Request, res: Response): Promise<void> {
   try {
-    const { amount, customer, items, sellerId, userId } = req.body;
+    const { amount, customer, items } = req.body as PixPaymentRequest;
 
-    // Validação
-    if (!amount || !customer || !items || !sellerId) {
+    // 🔎 Validação básica de campos obrigatórios
+    if (!amount || !customer?.document || !items?.length) {
       res.status(400).json({
-        success: false,
-        message: 'Dados obrigatórios faltando: amount, customer, items, sellerId'
+        status: "error",
+        message: "Campos obrigatórios ausentes: amount, customer.document ou items",
       });
       return;
     }
 
-    console.log('📥 Criando pagamento PIX:', { amount, sellerId, userId });
-
-    // Chama a API da Pagar.me v5
-    const response = await axios.post(
-      'https://api.pagar.me/core/v5/orders',
-      {
-        amount,
-        currency: 'BRL',
-        customer,
-        items,
-        payments: [{
-          payment_method: 'pix',
-          pix: {
-            expires_in: 3600
-          }
-        }]
-      },
-      {
-        auth: {
-          username: process.env.PAGARME_SECRET_KEY || '',
-          password: ''
-        },
-        headers: {
-          'Content-Type': 'application/json'
-        }
-      }
-    );
-
-    const orderData = response.data;
-    const charge = orderData.charges?.[0];
-    const lastTransaction = charge?.last_transaction;
-    
-    console.log('✅ Resposta da Pagar.me:', {
-      orderId: orderData.id,
-      code: orderData.code,
-      status: charge?.status
+    console.log("💰 Criando PIX V5...", {
+      valor: amount,
+      cliente: customer.name,
+      documento: customer.document,
     });
 
-    // Salva no banco de dados
-    const transaction = new Transaction({
-      externalId: orderData.code,
-      orderId: orderData.id,
-      chargeId: charge?.id,
-      transactionId: lastTransaction?.id,
-      gatewayId: lastTransaction?.gateway_id,
-      sellerId,
-      userId,
-      amount: orderData.amount,
-      method: 'pix',
-      status: 'waiting_payment',
-      pixData: {
-        qrCode: lastTransaction?.qr_code,
-        qrCodeUrl: lastTransaction?.qr_code_url,
-        expiresAt: lastTransaction?.expires_at ? new Date(lastTransaction.expires_at) : undefined,
-        pixProviderTid: lastTransaction?.pix_provider_tid,
-      },
-      purchaseData: {
+    // 🔗 Monta requisição para a Pagar.me V5
+    const response = await axios.post(
+      `${process.env.PAGARME_API_URL_V5}/orders`,
+      {
         customer: {
           name: customer.name,
           email: customer.email,
+          type: "individual",
           document: customer.document,
-          documentType: customer.document_type,
-          phone: customer.phones?.mobile_phone?.number,
+          document_type: "CPF",
+          phones: {
+            mobile_phone: {
+              country_code: "55",
+              area_code: "11",
+              number: "999999999",
+            },
+          },
         },
-        products: items.map((item: any) => ({
-          id: item.code,
-          name: item.description,
-          price: item.amount,
-          quantity: item.quantity,
+        items: items.map((i) => ({
+          amount: i.amount,
+          description: i.description,
+          quantity: i.quantity,
+          code: i.code,
         })),
+        payments: [
+          {
+            payment_method: "pix",
+            pix: { expires_in: 3600 }, // expira em 1h
+          },
+        ],
       },
-    });
+      {
+        headers: {
+          Authorization: `Bearer ${process.env.PAGARME_SECRET_KEY}`,
+          "Content-Type": "application/json",
+        },
+        timeout: 15000, // 15 segundos de timeout
+      }
+    );
 
-    await transaction.save();
-    
-    console.log('💾 Transação salva no MongoDB:', transaction._id);
+    // 💾 Sucesso
+    console.log("✅ PIX criado com sucesso:", response.data.id);
 
     res.status(201).json({
-      success: true,
-      transaction: {
-        id: transaction._id,
-        code: orderData.code,
-        qrCodeUrl: lastTransaction?.qr_code_url,
-        qrCode: lastTransaction?.qr_code,
-        expiresAt: lastTransaction?.expires_at,
-        amount: orderData.amount,
-        status: 'waiting_payment'
-      }
+      status: "success",
+      data: response.data,
     });
+  } catch (error: unknown) {
+    const err = error as AxiosError<any>;
+    const message =
+      err.response?.data?.message || err.response?.data || err.message;
 
-  } catch (error: any) {
-    console.error('❌ Erro ao criar pagamento PIX:', error.response?.data || error.message);
+    console.error("💥 Erro ao criar PIX V5:", message);
+
     res.status(500).json({
-      success: false,
-      message: 'Erro ao criar pagamento PIX',
-      error: error.response?.data || error.message
+      status: "error",
+      message,
+      details: process.env.NODE_ENV === "development" ? err.response?.data : undefined,
     });
   }
-};
+}
