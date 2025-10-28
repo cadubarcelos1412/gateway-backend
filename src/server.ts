@@ -3,21 +3,31 @@ import express, { Application, Request, Response } from "express";
 import mongoose from "mongoose";
 import dotenv from "dotenv";
 import cors from "cors";
-import router from "./routes/index";
 import swaggerUi from "swagger-ui-express";
 import fs from "fs";
 import path from "path";
+import router from "./routes/index";
 
-// 📘 Carrega variáveis de ambiente
-dotenv.config();
+/* -------------------------------------------------------------------------- */
+/* 🌱 Carrega variáveis de ambiente de forma segura                            */
+/* -------------------------------------------------------------------------- */
+const envPath = path.resolve(__dirname, "../.env");
+dotenv.config({ path: envPath });
 
-// 🧩 Inicializa o app Express
+if (!process.env.MONGO_URI) {
+  console.error("❌ ERRO: Variável MONGO_URI ausente no arquivo .env");
+  process.exit(1);
+}
+
+/* -------------------------------------------------------------------------- */
+/* 🧩 Inicialização do app Express                                             */
+/* -------------------------------------------------------------------------- */
 const app: Application = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 /* -------------------------------------------------------------------------- */
-/* 🌐 CORS - LIBERADO PARA DESENVOLVIMENTO E PRODUÇÃO                        */
+/* 🌐 CORS - Desenvolvimento e Produção                                       */
 /* -------------------------------------------------------------------------- */
 const allowedOrigins: string[] = [
   "http://localhost:5173",
@@ -32,52 +42,48 @@ const allowedOrigins: string[] = [
 app.use(
   cors({
     origin: (origin, callback) => {
-      // Permite requisições sem origin (Postman, mobile apps, etc)
-      if (!origin) return callback(null, true);
-      
-      if (allowedOrigins.indexOf(origin) !== -1 || process.env.NODE_ENV === 'development') {
+      if (!origin) return callback(null, true); // Postman, mobile apps
+      if (allowedOrigins.includes(origin) || process.env.NODE_ENV === "development") {
         callback(null, true);
       } else {
-        callback(new Error('Not allowed by CORS'));
+        callback(new Error(`CORS bloqueado para origem: ${origin}`));
       }
     },
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     credentials: true,
     allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
     exposedHeaders: ["Content-Range", "X-Content-Range"],
-    maxAge: 86400 // 24 horas
+    maxAge: 86400,
   })
 );
-
-// Preflight requests
-app.options('*', cors());
+app.options("*", cors()); // preflight
 
 /* -------------------------------------------------------------------------- */
-/* ⚙️ Variáveis principais                                                    */
+/* ⚙️ Configurações principais                                                */
 /* -------------------------------------------------------------------------- */
 const ENV = process.env.NODE_ENV || "development";
 const PORT = Number(process.env.PORT) || 3000;
-const BASE_URL: string =
+const BASE_URL =
   process.env.BASE_URL ||
   (ENV === "production"
     ? "https://web-production-db663.up.railway.app"
     : `http://localhost:${PORT}`);
-const MONGO_URI = process.env.MONGO_URI || "";
+const MONGO_URI = process.env.MONGO_URI;
 
 /* -------------------------------------------------------------------------- */
-/* 📘 Carrega Swagger se disponível                                           */
+/* 📘 Swagger (opcional)                                                      */
 /* -------------------------------------------------------------------------- */
-let swaggerFile: any = null;
 const swaggerPath = path.resolve(__dirname, "../swagger-output.json");
 if (fs.existsSync(swaggerPath)) {
-  swaggerFile = require(swaggerPath);
+  const swaggerFile = require(swaggerPath);
+  app.use("/docs", swaggerUi.serve, swaggerUi.setup(swaggerFile));
   console.log("📘 Swagger carregado com sucesso.");
 } else {
   console.warn("⚠️ Swagger não encontrado — ignorando documentação.");
 }
 
 /* -------------------------------------------------------------------------- */
-/* 🏠 Rota raiz                                                               */
+/* 🏠 Rota raiz e health check                                                */
 /* -------------------------------------------------------------------------- */
 app.get("/", (_req: Request, res: Response) => {
   res.status(200).json({
@@ -87,33 +93,20 @@ app.get("/", (_req: Request, res: Response) => {
     endpoints: {
       docs: "/docs",
       health: "/health",
-      payments: "/api/payments",
-      webhooks: "/api/webhooks",
       api: "/api",
     },
   });
 });
 
-/* -------------------------------------------------------------------------- */
-/* 🏥 Health Check                                                            */
-/* -------------------------------------------------------------------------- */
 app.get("/health", (_req: Request, res: Response) => {
   res.status(200).json({
     status: "healthy",
-    timestamp: new Date().toISOString(),
+    mongodb: mongoose.connection.readyState === 1 ? "connected" : "disconnected",
     uptime: process.uptime(),
     environment: ENV,
-    mongodb:
-      mongoose.connection.readyState === 1 ? "connected" : "disconnected",
+    timestamp: new Date().toISOString(),
   });
 });
-
-/* -------------------------------------------------------------------------- */
-/* 📘 Swagger Docs                                                            */
-/* -------------------------------------------------------------------------- */
-if (swaggerFile) {
-  app.use("/docs", swaggerUi.serve, swaggerUi.setup(swaggerFile));
-}
 
 /* -------------------------------------------------------------------------- */
 /* 🌐 Rotas principais                                                        */
@@ -121,7 +114,7 @@ if (swaggerFile) {
 app.use("/api", router);
 
 /* -------------------------------------------------------------------------- */
-/* 🚨 Error Handler global                                                    */
+/* 🚨 Middleware global de erro                                               */
 /* -------------------------------------------------------------------------- */
 app.use((err: any, _req: Request, res: Response, _next: any) => {
   console.error("❌ Erro não tratado:", err);
@@ -137,37 +130,30 @@ app.use((err: any, _req: Request, res: Response, _next: any) => {
 /* -------------------------------------------------------------------------- */
 async function startServer(): Promise<void> {
   try {
-    if (!MONGO_URI)
-      throw new Error("❌ Variável MONGO_URI ausente no arquivo .env");
-
     console.log("🔌 Conectando ao MongoDB...");
-    await mongoose.connect(MONGO_URI);
+    await mongoose.connect(MONGO_URI!);
     console.log("✅ Conectado ao MongoDB com sucesso!");
 
-    // 🚀 Inicializa servidor
     app.listen(PORT, () => {
       console.log(`
 ╔════════════════════════════════════════════════╗
-║  🚀 KissaPagamentos Gateway v2.0              ║
+║ 🚀 KissaPagamentos Gateway v2.0               ║
 ║                                                ║
-║  🌐 URL: ${BASE_URL.padEnd(38, " ")}║
-║  📘 Docs: ${(BASE_URL + "/docs").padEnd(35, " ")}║
-║  🏥 Health: ${(BASE_URL + "/health").padEnd(33, " ")}║
-║  🔧 Ambiente: ${ENV.padEnd(32, " ")}║
-║                                                ║
+║ 🌐 URL: ${BASE_URL.padEnd(38, " ")}║
+║ 📘 Docs: ${(BASE_URL + "/docs").padEnd(35, " ")}║
+║ 🏥 Health: ${(BASE_URL + "/health").padEnd(33, " ")}║
+║ 🔧 Ambiente: ${ENV.padEnd(32, " ")}║
 ╚════════════════════════════════════════════════╝
       `);
     });
 
-    // ⏰ Agendador T+1
+    // ⏰ Agendador T+1 (desativado localmente)
     if (ENV === "production") {
       import("./scripts/dailyProofCron")
         .then(() => console.log("⏱️  Agendador diário (T+1) ativo."))
-        .catch((err) =>
-          console.error("⚠️  Erro ao carregar agendador diário:", err)
-        );
+        .catch((err) => console.error("⚠️ Erro ao iniciar agendador:", err));
     } else {
-      console.log("🧩 Ambiente local detectado — agendador desativado.");
+      console.log("🧩 Ambiente local — agendador desativado.");
     }
   } catch (error: any) {
     console.error("💥 Erro crítico na inicialização:", error.message || error);
@@ -175,7 +161,7 @@ async function startServer(): Promise<void> {
   }
 }
 
-// ▶️ Execução
+// ▶️ Executa servidor
 startServer();
 
 export default app;

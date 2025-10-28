@@ -1,5 +1,6 @@
 import "dotenv/config";
 import mongoose from "mongoose";
+import bcrypt from "bcryptjs";
 import { User } from "../models/user.model";
 
 (async () => {
@@ -10,13 +11,13 @@ import { User } from "../models/user.model";
     const masterData = {
       name: "Master Kaduuuuu",
       email: "kadukadu@teste.com.br",
-      password: "SenhaForte123!", // pode trocar se quiser
+      password: await bcrypt.hash("SenhaForte123!", 10), // 🔐 Criptografa antes de salvar
       role: "master",
       status: "active",
       document: "38144992040",
     };
 
-    const exists = await User.findOne({ role: "master" });
+    const exists = await User.findOne({ role: "master" }).lean();
     if (exists) {
       console.log("⚠️ Já existe um usuário master no banco:");
       console.log(`📧 Email: ${exists.email}`);
