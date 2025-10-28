@@ -1,6 +1,6 @@
 import "dotenv/config";
 import mongoose from "mongoose";
-import { User } from "../src/models/user.model";
+import { User } from "../models/user.model";
 
 (async () => {
   try {
@@ -8,9 +8,9 @@ import { User } from "../src/models/user.model";
     console.log("📡 Conectado ao MongoDB");
 
     const masterData = {
-      name: "Master Admin111",
-      email: "admin@teste.com.br", // ✅ Corrigido
-      password: "SenhaForte123!", // ✅ Em texto puro
+      name: "Master Kaduuuuu",
+      email: "kadukadu@teste.com.br",
+      password: "SenhaForte123!", // pode trocar se quiser
       role: "master",
       status: "active",
       document: "38144992040",
@@ -18,13 +18,14 @@ import { User } from "../src/models/user.model";
 
     const exists = await User.findOne({ role: "master" });
     if (exists) {
-      console.log("⚠️ Já existe um usuário master no banco.");
+      console.log("⚠️ Já existe um usuário master no banco:");
       console.log(`📧 Email: ${exists.email}`);
       console.log(`🆔 ID: ${exists._id}`);
       process.exit(0);
     }
 
     const masterUser = await User.create(masterData);
+
     console.log("\n✅ Usuário MASTER criado com sucesso!");
     console.log(`📧 Email: ${masterUser.email}`);
     console.log(`🆔 ID: ${masterUser._id}`);
