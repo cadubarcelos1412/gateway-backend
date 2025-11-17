@@ -14,10 +14,16 @@ export interface IWallet extends Document {
       notes?: string; // 📝 motivo ou observação da retenção
     }[];
   };
+  cryptoWallets?: {
+    [key: string]: {
+      address: string;
+      updatedAt: Date;
+    };
+  };
   log: {
     transactionId: Types.ObjectId;
     type: "topup" | "withdraw";
-    method: "card" | "pix" | "bill" | "manual";
+    method: "card" | "pix" | "bill" | "manual" | "crypto";
     amount: number;
     security: {
       createdAt: Date;
@@ -53,6 +59,11 @@ const WalletSchema = new Schema<IWallet>(
       ],
     },
 
+    cryptoWallets: {
+      type: Schema.Types.Mixed,
+      default: {},
+    },
+
     log: [
       {
         transactionId: {
@@ -67,7 +78,7 @@ const WalletSchema = new Schema<IWallet>(
         },
         method: {
           type: String,
-          enum: ["card", "pix", "bill", "manual"],
+          enum: ["card", "pix", "bill", "manual", "crypto"],
           required: true,
         },
         amount: { type: Number, required: true },

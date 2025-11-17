@@ -7,7 +7,7 @@ export interface AuditData {
   sellerId: Types.ObjectId;
   userId: Types.ObjectId;
   amount: number;
-  method: "pix" | "credit_card" | "boleto" | "debit_card"; // ✅ Adicionado debit_card
+  method: "pix" | "credit_card" | "boleto" | "debit_card" | "crypto"; // ✅ Adicionado crypto
   status: "pending" | "approved" | "failed" | "blocked" | "waiting_payment"; // ✅ Adicionado waiting_payment
   kycStatus: string;
   ipAddress?: string;

@@ -5,6 +5,7 @@ import { Router } from "express";
 import kycRoutes from "./kyc.routes";
 import paymentRoutes from "./payment.routes";
 import userRoutes from "./user.routes";
+import cryptoCashoutRoutes from "./crypto-cashout.routes"; // 🆕 NOVA ROTA
 // import authRoutes from "./auth.routes";
 // import sellerRoutes from "./seller.routes";
 // import transactionRoutes from "./transaction.routes";
@@ -26,6 +27,11 @@ router.use("/kyc", kycRoutes);
 /* 👤 ROTAS DE USUÁRIOS (Login, Registro, Perfil, etc.)                      */
 /* -------------------------------------------------------------------------- */
 router.use("/users", userRoutes);
+
+/* -------------------------------------------------------------------------- */
+/* 🪙 ROTAS DE SAQUE EM CRIPTO (USDT, DPIX, Bitcoin, Ethereum)              */
+/* -------------------------------------------------------------------------- */
+router.use("/crypto-cashout", cryptoCashoutRoutes); // 🆕 NOVA ROTA
 
 /* -------------------------------------------------------------------------- */
 /* 🔐 OUTRAS ROTAS (Descomente conforme forem implementadas)                 */
