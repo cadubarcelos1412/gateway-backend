@@ -1,130 +1,149 @@
 import { Router } from "express";
 
-// 🔹 Rotas já existentes
+/* ==========================================================================
+   📦 IMPORTAÇÃO DE TODAS AS ROTAS DO SISTEMA
+   ========================================================================== */
+
+// 🔐 Autenticação / Usuários
 import userRoutes from "./user.routes";
+
+// 👤 Sellers
+import sellerRoutes from "./seller.routes";
+
+// 🧩 KYC
 import kycRoutes from "./kyc.routes";
+
+// 💳 Pagamentos (Pagar.me)
 import paymentRoutes from "./payment.routes";
 
-// 🔹 NOVAS ROTAS QUE VOCÊ JÁ TEM NO PROJETO
-import sellerRoutes from "./seller.routes";
-import transactionRoutes from "./transaction.routes";
+// 💼 Wallet / Saldo
 import walletRoutes from "./wallet.routes";
+
+// 🧾 Transações
+import transactionRoutes from "./transaction.routes";
+
+// 🛒 Checkout
 import checkoutRoutes from "./checkout.routes";
+
+// 🏦 Subcontas
 import subaccountRoutes from "./subaccount.routes";
+
+// 🧱 Reserva financeira
 import reserveRoutes from "./reserve.routes";
+
+// 🔓 Release (liberação)
 import releaseRoutes from "./release.routes";
+
+// 🛡 Retenção (risk engine)
 import retentionRoutes from "./retention.routes";
+
+// 📦 Produtos
 import productsRoutes from "./products.routes";
+
+// 💸 Cashout (saques normais)
 import cashoutRoutes from "./cashout.routes";
+
+// 📊 Volume / Dashboard
 import volumeRoutes from "./volume.routes";
+
+// 🪝 Webhooks
 import webhookRoutes from "./webhook.routes";
+
+// 🖼 Imagens
 import imageRoutes from "./images.routes";
+
+// 📤 Uploads
 import uploadRoutes from "./upload.routes";
-import cryptoRoutes from "./crypto.routes";           // <- seu controller novo
+
+// 🪙 Crypto Cashout
+import cryptoRoutes from "./crypto.routes";
+
+// 🚨 Suspeitas (fraudes)
 import suspiciousRoutes from "./suspicious.routes";
+
+// 🧠 Score (Risk score engine)
 import scoreRoutes from "./score.routes";
+
+// 🧪 Test API (debug)
+import testRoutes from "./test.routes";
+
+
+/* ==========================================================================
+   🚀 DEFINIÇÃO DO ROUTER PRINCIPAL
+   ========================================================================== */
 
 const router = Router();
 
-/* -------------------------------------------------------------------------- */
-/* 🧾 USUÁRIOS + LOGIN                                                        */
-/* -------------------------------------------------------------------------- */
+/* ==========================================================================
+   🔗 REGISTRO DE TODAS AS ROTAS (com prefixo /api no server.ts)
+   ========================================================================== */
+
+// 🧪 TESTE / STATUS
+router.use("/test", testRoutes);
+
+// 👤 Usuários
 router.use("/users", userRoutes);
 
-/* -------------------------------------------------------------------------- */
-/* 👤 SELLERS                                                                 */
-/* -------------------------------------------------------------------------- */
+// 👤 Sellers
 router.use("/sellers", sellerRoutes);
 
-/* -------------------------------------------------------------------------- */
-/* 🧩 KYC                                                                     */
-/* -------------------------------------------------------------------------- */
+// 🧩 KYC
 router.use("/kyc", kycRoutes);
 
-/* -------------------------------------------------------------------------- */
-/* 💳 PAGAMENTOS / PIX / CARTÃO                                               */
-/* -------------------------------------------------------------------------- */
+// 💳 Pagamentos
 router.use("/payments", paymentRoutes);
 
-/* -------------------------------------------------------------------------- */
-/* 💼 WALLET / SALDO                                                          */
-/* -------------------------------------------------------------------------- */
+// 💼 Wallet
 router.use("/wallet", walletRoutes);
 
-/* -------------------------------------------------------------------------- */
-/* 🧾 TRANSAÇÕES (consulta, filtros, detalhes)                                */
-/* -------------------------------------------------------------------------- */
+// 🧾 Transações
 router.use("/transactions", transactionRoutes);
 
-/* -------------------------------------------------------------------------- */
-/* 🛒 CHECKOUT                                                                 */
-/* -------------------------------------------------------------------------- */
+// 🛒 Checkout
 router.use("/checkout", checkoutRoutes);
 
-/* -------------------------------------------------------------------------- */
-/* 🏦 SUBACCOUNTS                                                              */
-/* -------------------------------------------------------------------------- */
+// 🏦 Subcontas
 router.use("/subaccount", subaccountRoutes);
 
-/* -------------------------------------------------------------------------- */
-/* 🧱 RESERVA FINANCEIRA (reserve)                                            */
-/* -------------------------------------------------------------------------- */
+// 🧱 Reserva Financeira
 router.use("/reserve", reserveRoutes);
 
-/* -------------------------------------------------------------------------- */
-/* 🔓 RELEASE (liberação de valores)                                          */
-/* -------------------------------------------------------------------------- */
+// 🔓 Release (liberação)
 router.use("/release", releaseRoutes);
 
-/* -------------------------------------------------------------------------- */
-/* 🛡 RETENÇÃO (risk/retention engine)                                        */
-/* -------------------------------------------------------------------------- */
+// 🛡 Retenção
 router.use("/retention", retentionRoutes);
 
-/* -------------------------------------------------------------------------- */
-/* 📦 PRODUTOS (catalogo seller)                                              */
-/* -------------------------------------------------------------------------- */
+// 📦 Produtos
 router.use("/products", productsRoutes);
 
-/* -------------------------------------------------------------------------- */
-/* 💸 CASHOUT (saques)                                                        */
-/* -------------------------------------------------------------------------- */
+// 💸 Saques (cashout normal)
 router.use("/cashout", cashoutRoutes);
 
-/* -------------------------------------------------------------------------- */
-/* 📊 VOLUME / DASHBOARD                                                      */
-/* -------------------------------------------------------------------------- */
+// 📊 Volume
 router.use("/volume", volumeRoutes);
 
-/* -------------------------------------------------------------------------- */
-/* 🪝 WEBHOOKS                                                                 */
-/* -------------------------------------------------------------------------- */
+// 🪝 Webhooks
 router.use("/hooks", webhookRoutes);
 
-/* -------------------------------------------------------------------------- */
-/* 🖼 IMAGENS / ASSETS                                                         */
-/* -------------------------------------------------------------------------- */
+// 🖼 Imagens
 router.use("/images", imageRoutes);
 
-/* -------------------------------------------------------------------------- */
-/* 📤 UPLOADS                                                                  */
-/* -------------------------------------------------------------------------- */
+// 📤 Uploads
 router.use("/upload", uploadRoutes);
 
-/* -------------------------------------------------------------------------- */
-/* 🪙 CRYPTO CASHOUT (SEU CONTROLLER NOVO)                                    */
-/* -------------------------------------------------------------------------- */
+// 🪙 Crypto Cashout
 router.use("/crypto", cryptoRoutes);
 
-/* -------------------------------------------------------------------------- */
-/* 🚨 SUSPICIOUS (fraudes)                                                    */
-/* -------------------------------------------------------------------------- */
+// 🚨 Fraude / Suspeitas
 router.use("/suspicious", suspiciousRoutes);
 
-/* -------------------------------------------------------------------------- */
-/* 🧠 SCORE (risk engine score)                                               */
-/* -------------------------------------------------------------------------- */
+// 🧠 Score (risk engine)
 router.use("/score", scoreRoutes);
 
-/* -------------------------------------------------------------------------- */
+
+/* ==========================================================================
+   📤 EXPORTAÇÃO
+   ========================================================================== */
+
 export default router;
