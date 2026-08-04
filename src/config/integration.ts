@@ -78,7 +78,7 @@ export async function PaiedSendIntegrations(user: IUser, transaction: ITransacti
       headers: { "Content-type": "application/json" },
       body: JSON.stringify({
         text: `Pagamento de R$ ${transaction.amount?.toFixed(2) || "0.00"} foi pago em nosso checkout!`,
-        title: `AgillePay - PIX Pago`,
+        title: `PYX Gate - PIX Pago`,
       }),
     });
   }
@@ -118,7 +118,7 @@ export async function PaiedSendIntegrations(user: IUser, transaction: ITransacti
     PostToUtmify(user.token.utmify.apiKey, {
       isTest: false,
       orderId: transaction._id?.toString() || "",
-      platform: "AgillePay",
+      platform: "PYX Gate",
       createdAt: transaction.createdAt ? transaction.createdAt.toDateString() : new Date().toDateString(),
       approvedDate: null,
       refundedAt: null,
@@ -160,7 +160,7 @@ export async function GenerateSendIntegrations(user: IUser, transaction: ITransa
       headers: { "Content-type": "application/json" },
       body: JSON.stringify({
         text: `Pagamento de R$ ${transaction.amount?.toFixed(2) || "0.00"} foi gerado no nosso checkout!`,
-        title: `AgillePay - PIX Gerado`,
+        title: `PYX Gate - PIX Gerado`,
       }),
     });
   }
@@ -198,7 +198,7 @@ export async function GenerateSendIntegrations(user: IUser, transaction: ITransa
     PostToUtmify(user.token.utmify.apiKey, {
       isTest: false,
       orderId: transaction._id?.toString() || "",
-      platform: "AgillePay",
+      platform: "PYX Gate",
       createdAt: transaction.createdAt ? transaction.createdAt.toDateString() : new Date().toDateString(),
       approvedDate: null,
       refundedAt: null,

@@ -64,14 +64,14 @@ export const createReflowTransactionPix = async (
         },
         items: [
           {
-            title: "Depósito em AgillePay",
-            description: "Agille Pay",
+            title: "Depósito em PYX Gate",
+            description: "PYX Gate",
             unitPrice: Math.round(payload.value * 100),
             quantity: 1,
             tangible: false,
           },
         ],
-        postbackUrl: "https://api.agillepay.com/api/transactions/webhook",
+        postbackUrl: "https://api.pyxgate.com/api/transactions/webhook",
         ip: payload.ip || "",
       },
       { headers: { "x-authorization-key": REFLOW_TOKEN } }
@@ -135,14 +135,14 @@ export const createReflowTransactionCard = async (
         card: payload.card,
         items: [
           {
-            title: "Depósito em AgillePay",
-            description: "Agille Pay",
+            title: "Depósito em PYX Gate",
+            description: "PYX Gate",
             unitPrice: Math.round(payload.value * 100),
             quantity: 1,
             tangible: false,
           },
         ],
-        postbackUrl: "https://api.agillepay.com/api/transactions/webhook",
+        postbackUrl: "https://api.pyxgate.com/api/transactions/webhook",
         ip: payload.ip || "",
       },
       { headers: { "x-authorization-key": REFLOW_TOKEN } }
