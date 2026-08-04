@@ -7,6 +7,5 @@ Procfile
 uploads
 dist
 .env
-*.jpg
-*.png
+src/files
 *.zip

@@ -69,10 +69,8 @@ app.use("/api", routes); // rotas gerais (usuários, transações, etc.)
 app.use("/api/cashouts", cashoutRoutes); // módulo de saques
 app.use("/v1", v1Routes); // 🌐 API pública, autenticada por API key (sk_...)
 
-// 📚 Docs navegáveis (Swagger UI) — só em dev, não expõe em produção por ora.
-if (process.env.NODE_ENV !== "production") {
-  app.use("/docs", docsRoutes);
-}
+// 📚 Docs navegáveis (site estático, sem dados sensíveis) — pública em qualquer ambiente.
+app.use("/docs", docsRoutes);
 
 /* -------------------------------------------------------------------------- */
 /* 💓 Rota de Saúde                                                         */
