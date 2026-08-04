@@ -18,9 +18,20 @@ const seedDev = async () => {
     await mongoose.connect(MONGO_URI);
     console.log("✅ Conectado ao MongoDB");
 
+    // Limpa qualquer resquício de execuções anteriores do seed (inclusive de
+    // usuários já apagados, cujo _id antigo deixaria produtos/transações/wallet
+    // órfãos se não fossem limpos por ID antes do usuário ser removido).
+    const staleUsers = await User.find({
+      email: { $in: [MASTER_EMAIL, SELLER_EMAIL, "master@kissa.dev", "seller@kissa.dev"] },
+    }).select("_id");
+    const staleUserIds = staleUsers.map((u) => u._id);
+
     await Promise.all([
-      User.deleteMany({ email: { $in: [MASTER_EMAIL, SELLER_EMAIL, "master@kissa.dev", "seller@kissa.dev"] } }),
-      Seller.deleteMany({ email: { $in: [SELLER_EMAIL, "seller@kissa.dev"] } }),
+      User.deleteMany({ _id: { $in: staleUserIds } }),
+      Seller.deleteMany({ $or: [{ email: { $in: [SELLER_EMAIL, "seller@kissa.dev"] } }, { userId: { $in: staleUserIds } }] }),
+      Wallet.deleteMany({ userId: { $in: staleUserIds } }),
+      Product.deleteMany({ userId: { $in: staleUserIds } }),
+      Transaction.deleteMany({ userId: { $in: staleUserIds } }),
     ]);
 
     const hashedPassword = await bcrypt.hash(DEV_PASSWORD, 10);
