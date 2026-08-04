@@ -4,7 +4,8 @@ import {
   getCheckout,
   getPublicCheckout,
   updateCheckout,
-  deleteCheckout
+  deleteCheckout,
+  getZendryThreedsToken
 } from "../controllers/checkout.controller";
 import { renderCheckoutPreview } from "../controllers/checkout.preview";
 import { payCheckout } from "../controllers/checkout.pay.controller";
@@ -52,5 +53,12 @@ router.get("/preview", renderCheckoutPreview);
  * @route POST /api/checkout/pay
  */
 router.post("/pay", payCheckout);
+
+/**
+ * 🔐 Token da Zendry pro SDK de 3DS (público — roda no navegador do comprador,
+ * antes de qualquer autenticação)
+ * @route GET /api/checkout/zendry-3ds-token
+ */
+router.get("/zendry-3ds-token", getZendryThreedsToken);
 
 export default router;

@@ -3,9 +3,59 @@ import mongoose from "mongoose";
 import bcrypt from "bcryptjs";
 import { User } from "../models/user.model";
 import { Wallet } from "../models/wallet.model";
-import { decodeToken } from "../config/auth";
+import { createToken, decodeToken } from "../config/auth";
 
 type PaymentMethod = "pix" | "creditCard" | "boleto";
+
+/* -------------------------------------------------------
+🔐 0. Login do usuário
+POST /api/users/login
+-------------------------------------------------------- */
+export const loginUser = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { email, password } = req.body;
+
+    if (!email || !password) {
+      res.status(400).json({ status: false, msg: "Email e senha são obrigatórios." });
+      return;
+    }
+
+    const user = await User.findOne({ email });
+    if (!user) {
+      res.status(401).json({ status: false, msg: "Email ou senha inválidos." });
+      return;
+    }
+
+    const passwordMatches = await bcrypt.compare(password, user.password);
+    if (!passwordMatches) {
+      res.status(401).json({ status: false, msg: "Email ou senha inválidos." });
+      return;
+    }
+
+    if (user.status === "suspended") {
+      res.status(403).json({ status: false, msg: "Conta suspensa. Contate o suporte." });
+      return;
+    }
+
+    const token = await createToken({ id: String(user._id), role: user.role });
+
+    res.status(200).json({
+      status: true,
+      msg: "✅ Login realizado com sucesso.",
+      token,
+      user: {
+        _id: user._id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        status: user.status,
+      },
+    });
+  } catch (err) {
+    console.error("❌ Erro em loginUser:", err);
+    res.status(500).json({ status: false, msg: "Erro interno ao autenticar." });
+  }
+};
 
 /* -------------------------------------------------------
 🆕 1. Registrar novo usuário (seller, client, etc.)
@@ -13,16 +63,16 @@ POST /api/users/register
 -------------------------------------------------------- */
 export const registerUser = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { name, email, password, role } = req.body;
+    const { name, email, password, document, role } = req.body;
 
-    if (!name || !email || !password) {
-      res.status(400).json({ status: false, msg: "Nome, email e senha são obrigatórios." });
+    if (!name || !email || !password || !document) {
+      res.status(400).json({ status: false, msg: "Nome, email, senha e documento (CPF/CNPJ) são obrigatórios." });
       return;
     }
 
-    const existing = await User.findOne({ email });
+    const existing = await User.findOne({ $or: [{ email }, { document }] });
     if (existing) {
-      res.status(409).json({ status: false, msg: "E-mail já cadastrado." });
+      res.status(409).json({ status: false, msg: "E-mail ou documento já cadastrado." });
       return;
     }
 
@@ -33,6 +83,7 @@ export const registerUser = async (req: Request, res: Response): Promise<void> =
       name,
       email,
       password: hashedPassword,
+      document,
       role: role || "seller",
       status: "active",
       split: {
@@ -55,7 +106,7 @@ export const registerUser = async (req: Request, res: Response): Promise<void> =
       status: true,
       msg: "✅ Usuário criado com sucesso e carteira vinculada.",
       user: {
-        id: user._id,
+        _id: user._id,
         name: user.name,
         email: user.email,
         role: user.role,

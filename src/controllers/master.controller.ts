@@ -1,7 +1,9 @@
 import { Request, Response } from "express";
 import { Transaction } from "../models/transaction.model";
 import { User } from "../models/user.model";
+import { Seller } from "../models/seller.model";
 import { createToken, decodeToken } from "../config/auth";
+import { ACQUIRER_KEYS } from "../acquirers";
 
 /**
  * 🔐 Gera token master (via SECRET_TOKEN do .env)
@@ -99,6 +101,29 @@ export const getKpas = async (_req: Request, res: Response): Promise<void> => {
 };
 
 /**
+ * 📋 Lista as transações mais recentes da plataforma (visão admin)
+ */
+export const listTransactions = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const limit = Math.min(Number(req.query.limit) || 20, 200);
+    const status = req.query.status as string | undefined;
+
+    const query: Record<string, unknown> = {};
+    if (status) query.status = status;
+
+    const transactions = await Transaction.find(query)
+      .sort({ createdAt: -1 })
+      .limit(limit)
+      .lean();
+
+    res.status(200).json({ status: true, transactions });
+  } catch (error) {
+    console.error("❌ Erro em listTransactions:", error);
+    res.status(500).json({ status: false, msg: "Erro interno ao listar transações." });
+  }
+};
+
+/**
  * 🏆 Top 10 produtos mais vendidos
  */
 export const getMostSaleProducts = async (_req: Request, res: Response): Promise<void> => {
@@ -138,5 +163,65 @@ export const getMostSaleProducts = async (_req: Request, res: Response): Promise
   } catch (error) {
     console.error("❌ Erro em getMostSaleProducts:", error);
     res.status(500).json({ status: false, msg: "Erro interno ao buscar top produtos." });
+  }
+};
+
+/**
+ * 🏦 Lista as adquirentes existentes no código (implementadas ou não) com status
+ * de configuração real (env vars) e quantos sellers estão atribuídos a cada uma.
+ */
+export const listAcquirers = async (_req: Request, res: Response): Promise<void> => {
+  try {
+    const catalog: Array<{
+      key: string;
+      name: string;
+      implemented: boolean;
+      configured: boolean;
+      missingEnv: string[];
+    }> = [
+      {
+        key: "pagarme",
+        name: "Pagar.me",
+        implemented: ACQUIRER_KEYS.includes("pagarme" as any),
+        configured: Boolean(process.env.PAGARME_SECRET_KEY),
+        missingEnv: process.env.PAGARME_SECRET_KEY ? [] : ["PAGARME_SECRET_KEY"],
+      },
+      {
+        key: "zendry",
+        name: "Zendry",
+        implemented: ACQUIRER_KEYS.includes("zendry" as any),
+        configured: Boolean(process.env.ZENDRY_CLIENT_ID) && Boolean(process.env.ZENDRY_CLIENT_SECRET),
+        missingEnv: [
+          !process.env.ZENDRY_CLIENT_ID ? "ZENDRY_CLIENT_ID" : null,
+          !process.env.ZENDRY_CLIENT_SECRET ? "ZENDRY_CLIENT_SECRET" : null,
+        ].filter((v): v is string => Boolean(v)),
+      },
+      {
+        key: "reflowpay",
+        name: "ReflowPay",
+        implemented: false,
+        configured: Boolean(process.env.REFLOW_TOKEN),
+        missingEnv: process.env.REFLOW_TOKEN ? [] : ["REFLOW_TOKEN"],
+      },
+    ];
+
+    const sellerCounts = await Seller.aggregate([
+      { $group: { _id: "$acquirer", total: { $sum: 1 } } },
+    ]);
+    const countsByKey = sellerCounts.reduce<Record<string, number>>((acc, row) => {
+      if (row._id) acc[row._id] = row.total;
+      return acc;
+    }, {});
+
+    const acquirers = catalog.map((item) => ({
+      ...item,
+      sellersCount: countsByKey[item.key] || 0,
+      active: item.implemented && item.configured,
+    }));
+
+    res.status(200).json({ status: true, acquirers });
+  } catch (error) {
+    console.error("❌ Erro em listAcquirers:", error);
+    res.status(500).json({ status: false, msg: "Erro interno ao listar adquirentes." });
   }
 };

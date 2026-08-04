@@ -2,40 +2,42 @@ import { Router } from "express";
 import {
   createCashoutRequest,
   listCashoutRequests,
-  updateCashoutStatus,
-  releaseBalanceManually,
+  approveCashoutRequest,
+  rejectCashoutRequest,
 } from "../controllers/cashout.controller";
 
 const router = Router();
 
-/* ----------------------- 🏦 Rotas de Solicitação de Saque ----------------------- */
+/* -------------------------------------------------------------------------- */
+/* 🏦 ROTAS DE CASHOUT / SAQUES                                              */
+/* -------------------------------------------------------------------------- */
 
 /**
- * @route POST /api/cashout/request
- * @desc Criar uma nova solicitação de saque (seller)
- * @access Protegido (precisa de token JWT)
+ * @route POST /api/cashouts/request
+ * @desc Criar nova solicitação de saque (seller)
+ * @access Protegido (token JWT)
  */
 router.post("/request", createCashoutRequest);
 
 /**
- * @route GET /api/cashout/list
- * @desc Listar todas as solicitações de saque pendentes (admin/master)
+ * @route GET /api/cashouts/list
+ * @desc Listar todas as solicitações (apenas admin/master)
  * @access Protegido
  */
 router.get("/list", listCashoutRequests);
 
 /**
- * @route PATCH /api/cashout/release/:userId
- * @desc Liberar TODO saldo indisponível manualmente para um usuário (somente admin/master)
+ * @route POST /api/cashouts/:id/approve
+ * @desc Aprovar solicitação de saque específica (admin/master)
  * @access Protegido
  */
-router.patch("/release/:userId", releaseBalanceManually);
+router.post("/:id/approve", approveCashoutRequest);
 
 /**
- * @route PATCH /api/cashout/:id
- * @desc Aprovar ou rejeitar uma solicitação específica de saque (admin/master)
+ * @route POST /api/cashouts/:id/reject
+ * @desc Rejeitar solicitação de saque específica (admin/master)
  * @access Protegido
  */
-router.patch("/:id", updateCashoutStatus); // ⚠️ manter por último
+router.post("/:id/reject", rejectCashoutRequest);
 
 export default router;

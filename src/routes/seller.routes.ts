@@ -1,10 +1,12 @@
 import { Router } from "express";
-import { 
-  registerSeller, 
-  listSellers, 
-  getMySellerProfile, 
-  getSellerById, 
-  verifySellerKYC 
+import {
+  registerSeller,
+  listSellers,
+  getMySellerProfile,
+  getSellerById,
+  verifySellerKYC,
+  toggleSellerStatus,
+  updateSellerAcquirer,
 } from "../controllers/seller.controller";
 
 const router = Router();
@@ -43,5 +45,19 @@ router.get("/:id", getSellerById);
  * @access  Master
  */
 router.patch("/:id/verify", verifySellerKYC);
+
+/**
+ * @route   PATCH /api/sellers/:id/toggle-status
+ * @desc    Bloquear/desbloquear seller (independente do KYC) – Apenas master
+ * @access  Master
+ */
+router.patch("/:id/toggle-status", toggleSellerStatus);
+
+/**
+ * @route   PATCH /api/sellers/:id/acquirer
+ * @desc    Definir qual adquirente (pagarme/zendry/...) processa as transações do seller – Apenas master
+ * @access  Master
+ */
+router.patch("/:id/acquirer", updateSellerAcquirer);
 
 export default router;

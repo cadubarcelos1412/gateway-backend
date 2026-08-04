@@ -12,10 +12,13 @@ if (!MONGO_URI) {
   process.exit(1);
 }
 
+// Nunca logar a URI crua — ela carrega usuário/senha do banco.
+const redactedUri = MONGO_URI.replace(/\/\/[^@]+@/, "//<redacted>@");
+
 export const connectDB = async (): Promise<void> => {
   try {
     console.log("🔌 Tentando conectar ao MongoDB...");
-    console.log("🔎 URI usada:", MONGO_URI);
+    console.log("🔎 URI usada:", redactedUri);
 
     await mongoose.connect(MONGO_URI);
 

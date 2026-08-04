@@ -1,4 +1,4 @@
-// 🛠️ Ajustado para produção no Railway
+// 🚀 Servidor principal da PYX Gate
 
 import express, { Request, Response, ErrorRequestHandler } from "express";
 import dotenv from "dotenv";
@@ -6,18 +6,27 @@ import cors from "cors";
 import helmet from "helmet";
 import morgan from "morgan";
 import { connectDB } from "./config/database";
+
 import routes from "./routes";
+import cashoutRoutes from "./routes/cashout.routes";
+import v1Routes from "./routes/v1";
+import docsRoutes from "./routes/docs.routes";
 
 dotenv.config();
 const app = express();
 
 /* -------------------------------------------------------------------------- */
-/* 🛠️ Middlewares Globais – ORDEM IMPORTA! */
+/* 🌍 Middlewares globais                                                    */
 /* -------------------------------------------------------------------------- */
 app.use(express.json());
+
+// 🔒 Origens permitidas via env var (CSV) — sem ALLOWED_ORIGINS configurada,
+// libera geral (dev). Em produção, defina ALLOWED_ORIGINS com o(s) domínio(s)
+// reais do frontend (ex.: https://app.pyxgate.com).
+const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(",").map((o) => o.trim()).filter(Boolean);
 app.use(
   cors({
-    origin: "*", // ⚠️ Ajuste aqui se quiser limitar a domínios específicos no futuro
+    origin: allowedOrigins && allowedOrigins.length > 0 ? allowedOrigins : true,
     methods: ["GET", "POST", "PATCH", "PUT", "DELETE"],
     allowedHeaders: ["Content-Type", "Authorization"],
   })
@@ -29,13 +38,13 @@ if (process.env.NODE_ENV !== "production") {
 }
 
 /* -------------------------------------------------------------------------- */
-/* 🩹 Captura JSON malformado */
+/* 🩹 Handler para JSON malformado                                           */
 /* -------------------------------------------------------------------------- */
 const invalidJsonHandler: ErrorRequestHandler = (err, _req, res, next): void => {
   if (err instanceof SyntaxError && "body" in err) {
     res.status(400).json({
       status: false,
-      msg: "❌ JSON malformado. Verifique aspas, vírgulas e acentos no corpo da requisição.",
+      msg: "❌ JSON malformado. Verifique aspas e vírgulas no corpo da requisição.",
     });
     return;
   }
@@ -44,7 +53,7 @@ const invalidJsonHandler: ErrorRequestHandler = (err, _req, res, next): void => 
 app.use(invalidJsonHandler);
 
 /* -------------------------------------------------------------------------- */
-/* 🗄️ Conexão com o Banco de Dados */
+/* 🗄️ Conexão com o MongoDB                                                 */
 /* -------------------------------------------------------------------------- */
 connectDB()
   .then(() => console.log("📦 Banco de dados conectado com sucesso!"))
@@ -54,24 +63,31 @@ connectDB()
   });
 
 /* -------------------------------------------------------------------------- */
-/* 🛣️ Rotas da API */
+/* 🛣️ Rotas principais da API                                               */
 /* -------------------------------------------------------------------------- */
-app.use("/api", routes);
+app.use("/api", routes); // rotas gerais (usuários, transações, etc.)
+app.use("/api/cashouts", cashoutRoutes); // módulo de saques
+app.use("/v1", v1Routes); // 🌐 API pública, autenticada por API key (sk_...)
+
+// 📚 Docs navegáveis (Swagger UI) — só em dev, não expõe em produção por ora.
+if (process.env.NODE_ENV !== "production") {
+  app.use("/docs", docsRoutes);
+}
 
 /* -------------------------------------------------------------------------- */
-/* 🩺 Rota de Saúde */
+/* 💓 Rota de Saúde                                                         */
 /* -------------------------------------------------------------------------- */
 app.get("/", (_req: Request, res: Response) => {
   res.status(200).json({
     status: true,
-    msg: "🚀 Kissa Pagamentos vem chegando com tudo!!!",
+    msg: "🚀 PYX Gate rodando firme e forte!",
     baseUrl: process.env.BASE_URL || "não configurada",
-    environment: process.env.NODE_ENV || "desconhecido",
+    env: process.env.NODE_ENV || "desconhecido",
   });
 });
 
 /* -------------------------------------------------------------------------- */
-/* ❌ 404 - Rota não encontrada */
+/* ❌ 404 - Rota não encontrada                                              */
 /* -------------------------------------------------------------------------- */
 app.use((_req: Request, res: Response) => {
   res.status(404).json({
@@ -81,7 +97,7 @@ app.use((_req: Request, res: Response) => {
 });
 
 /* -------------------------------------------------------------------------- */
-/* 💥 Middleware Global de Erros */
+/* 💥 Middleware Global de Erros                                            */
 /* -------------------------------------------------------------------------- */
 const globalErrorHandler: ErrorRequestHandler = (err, _req, res, _next): void => {
   console.error("💥 Erro global capturado:", err.message);
@@ -91,23 +107,19 @@ const globalErrorHandler: ErrorRequestHandler = (err, _req, res, _next): void =>
 
   res.status(err.status || 500).json({
     status: false,
-    msg: err.message || "Erro interno no servidor. Tente novamente mais tarde.",
+    msg: err.message || "Erro interno no servidor.",
     stack: process.env.NODE_ENV !== "production" ? err.stack : undefined,
   });
 };
 app.use(globalErrorHandler);
 
 /* -------------------------------------------------------------------------- */
-/* 🚀 Inicialização do Servidor */
+/* 🚀 Inicialização do Servidor                                              */
 /* -------------------------------------------------------------------------- */
-const PORT: number = Number(process.env.PORT) || 3000;
-
-// 🚨 Ajuste automático da BASE_URL no Railway
+const PORT = Number(process.env.PORT) || 3000;
 const BASE_URL =
   process.env.BASE_URL ||
-  (process.env.RAILWAY_STATIC_URL
-    ? `https://${process.env.RAILWAY_STATIC_URL}`
-    : `http://localhost:${PORT}`);
+  (process.env.RENDER_EXTERNAL_URL ? process.env.RENDER_EXTERNAL_URL : `http://localhost:${PORT}`);
 
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`✅ Servidor rodando na porta ${PORT}`);

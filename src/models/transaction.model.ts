@@ -16,7 +16,7 @@ export interface TrackingParameters {
 /* -------------------------------------------------------------------------- */
 export interface ITransaction extends Document {
   userId: Types.ObjectId;
-  productId: Types.ObjectId;
+  productId?: Types.ObjectId;
   amount: number;
   fee: number;
   netAmount: number;
@@ -24,13 +24,25 @@ export interface ITransaction extends Document {
   type: "deposit" | "withdraw";
   method: "pix" | "credit_card" | "boleto";
   status: "pending" | "approved" | "failed";
+  /** "test" para transações criadas com uma chave de API sk_test_...; "live" para dinheiro real. */
+  mode: "test" | "live";
   description?: string;
   externalId?: string;
   postback?: string;
   riskFlags: string[];
   trackingParameters?: TrackingParameters;
   idempotencyKey?: string;
+  /** Metadados livres enviados pelo integrador via API pública (POST /v1/payments). */
+  metadata?: Record<string, unknown>;
   createdAt: Date;
+  paymentDetails?: {
+    pixCode?: string;
+    pixQrCodeBase64?: string;
+    cardLastDigits?: string;
+    cardBrand?: string;
+    cardAuthorizationCode?: string;
+    cardChargedAmount?: number;
+  };
   purchaseData?: {
     customer?: {
       name?: string;
@@ -52,7 +64,7 @@ export interface ITransaction extends Document {
 const TransactionSchema = new Schema<ITransaction>(
   {
     userId: { type: Schema.Types.ObjectId, ref: "User", required: true, index: true },
-    productId: { type: Schema.Types.ObjectId, ref: "Product", required: true },
+    productId: { type: Schema.Types.ObjectId, ref: "Product" },
     amount: { type: Number, required: true },
     fee: { type: Number, required: true },
     netAmount: { type: Number, required: true },
@@ -78,6 +90,13 @@ const TransactionSchema = new Schema<ITransaction>(
       index: true,
     },
 
+    mode: {
+      type: String,
+      enum: ["test", "live"],
+      default: "live",
+      index: true,
+    },
+
     description: { type: String, trim: true, maxlength: 255 },
     externalId: { type: String, index: true },
     postback: { type: String },
@@ -88,6 +107,8 @@ const TransactionSchema = new Schema<ITransaction>(
       sparse: true,
       index: true,
     },
+
+    metadata: { type: Schema.Types.Mixed },
 
     riskFlags: {
       type: [String],
@@ -102,6 +123,15 @@ const TransactionSchema = new Schema<ITransaction>(
       utm_campaign: { type: String, trim: true },
       utm_content: { type: String, trim: true },
       utm_term: { type: String, trim: true },
+    },
+
+    paymentDetails: {
+      pixCode: { type: String },
+      pixQrCodeBase64: { type: String },
+      cardLastDigits: { type: String },
+      cardBrand: { type: String },
+      cardAuthorizationCode: { type: String },
+      cardChargedAmount: { type: Number },
     },
 
     purchaseData: {
@@ -132,6 +162,7 @@ const TransactionSchema = new Schema<ITransaction>(
 /* 📊 Índices estratégicos – performance, antifraude e auditoria             */
 /* -------------------------------------------------------------------------- */
 TransactionSchema.index({ userId: 1, createdAt: -1 });
+TransactionSchema.index({ userId: 1, mode: 1, createdAt: -1 });
 TransactionSchema.index({ status: 1 });
 TransactionSchema.index({ method: 1 });
 TransactionSchema.index({ "purchaseData.customer.document": 1 });

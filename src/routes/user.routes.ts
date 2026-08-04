@@ -1,5 +1,6 @@
 import { Router } from "express";
 import {
+  loginUser,
   registerUser,
   updateSplitFees,
   createAdminUser,
@@ -12,6 +13,13 @@ const router = Router();
  👤 USERS ROUTES
  Prefixo base: /api/users
 --------------------------------------------------------------------------- */
+
+/**
+ * 🔐 Login do usuário
+ * POST /api/users/login
+ * Acesso: Público
+ */
+router.post("/login", loginUser);
 
 /**
  * 🆕 Registra um novo usuário (seller, cliente, etc.)

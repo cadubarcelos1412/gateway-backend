@@ -1,0 +1,498 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>PYX Gate — Documentação da API</title>
+<meta name="description" content="Documentação da API pública da PYX Gate: pagamentos Pix e cartão, webhooks e chaves de API." />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="/docs/styles.css" />
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <img src="/docs/assets/logo-pyxgate.png" alt="PYX Gate" />
+  </div>
+  <button class="menu-toggle" aria-label="Abrir menu"><span></span></button>
+</header>
+
+<div class="shell">
+  <nav class="sidebar">
+    <div class="brand">
+      <img src="/docs/assets/logo-pyxgate.png" alt="PYX Gate" />
+      <span class="env-tag">API Docs</span>
+    </div>
+
+    <div class="nav-group">
+      <div class="nav-label">Primeiros passos</div>
+      <a href="#introducao">Introdução</a>
+      <a href="#autenticacao">Autenticação</a>
+      <a href="#erros">Erros</a>
+      <a href="#idempotencia">Idempotência</a>
+    </div>
+
+    <div class="nav-group">
+      <div class="nav-label">Referência da API</div>
+      <a href="#account"><span class="method get">GET</span> Account</a>
+      <a href="#criar-pagamento"><span class="method post">POST</span> Criar pagamento</a>
+      <a href="#consultar-pagamento"><span class="method get">GET</span> Consultar pagamento</a>
+      <a href="#listar-pagamentos"><span class="method get">GET</span> Listar pagamentos</a>
+      <a href="#modo-teste"><span class="method post">POST</span> Simular (modo teste)</a>
+      <a href="#estornos"><span class="method post">POST</span> Estornos</a>
+      <a href="#webhook-endpoints"><span class="method post">POST</span> Webhook endpoints</a>
+    </div>
+
+    <div class="nav-group">
+      <div class="nav-label">Webhooks</div>
+      <a href="#webhooks">Eventos e assinatura</a>
+    </div>
+
+    <div class="nav-group">
+      <div class="nav-label">Guias</div>
+      <a href="#guia-pix">Pix, do zero ao pedido liberado</a>
+      <a href="#guia-cartao">Cartão</a>
+      <a href="#guia-checkout">Checkout de e-commerce</a>
+    </div>
+
+    <div class="nav-group">
+      <div class="nav-label">Recursos</div>
+      <a href="/docs/openapi.yaml">openapi.yaml ↗</a>
+    </div>
+  </nav>
+
+  <main class="main">
+
+    <div class="hero reveal">
+      <span class="eyebrow">PYX Gate · API v1</span>
+      <h1>Documentação da API</h1>
+      <p class="lead">Crie cobranças Pix e cartão, receba confirmação em tempo real por webhook e gerencie tudo com chaves de API — sem sair do seu próprio sistema.</p>
+    </div>
+
+    <!-- ===================== INTRODUÇÃO ===================== -->
+    <section class="doc-section reveal" id="introducao">
+      <h2>Introdução</h2>
+      <p>Toda a API pública vive sob o prefixo <code>/v1</code>, separado do painel interno da PYX Gate. Autenticação é feita por <strong>chave de API</strong>, não por login de usuário.</p>
+
+      <table>
+        <thead><tr><th>Ambiente</th><th>Base URL</th></tr></thead>
+        <tbody>
+          <tr><td>Desenvolvimento local</td><td><code>http://localhost:3000/v1</code></td></tr>
+          <tr><td>Produção</td><td><code>https://api.pyxgate.com/v1</code> <span style="color:var(--slate)">(domínio ilustrativo — ainda não implantado)</span></td></tr>
+        </tbody>
+      </table>
+
+      <h3>Modo teste vs. produção</h3>
+      <p>Cada chave de API tem um modo. Uma chave <code>sk_test_...</code> roda inteiramente em <strong>modo teste</strong>: nunca chama uma adquirente real, nunca move dinheiro, nunca aparece nos relatórios financeiros reais. A confirmação de um pagamento em modo teste é manual, via os endpoints de simulação. Uma chave <code>sk_live_...</code> processa pagamentos reais.</p>
+      <p>Pagamentos, listagens e consultas são sempre escopados ao modo da chave usada — uma chave de teste nunca enxerga pagamentos reais, e vice-versa.</p>
+
+      <div class="callout">
+        <div class="callout-title">Convenção de valores</div>
+        <p>Valores monetários são sempre <strong>inteiros em centavos</strong> (<code>amount: 1990</code> = R$ 19,90). IDs de recursos têm prefixo por tipo: <code>pay_...</code>, <code>we_...</code>, <code>evt_...</code>.</p>
+      </div>
+    </section>
+
+    <!-- ===================== AUTENTICAÇÃO ===================== -->
+    <section class="doc-section reveal" id="autenticacao">
+      <h2>Autenticação</h2>
+
+      <table>
+        <thead><tr><th>Prefixo</th><th>Tipo</th><th>Onde usar</th></tr></thead>
+        <tbody>
+          <tr><td><code>sk_live_...</code> / <code>sk_test_...</code></td><td>Secret key</td><td>Só no seu backend. Autoriza todas as operações.</td></tr>
+          <tr><td><code>pk_live_...</code> / <code>pk_test_...</code></td><td>Publishable key</td><td>Pode aparecer em frontend. Hoje não autentica endpoints de <code>/v1</code> — reservada para SDKs client-side futuros.</td></tr>
+        </tbody>
+      </table>
+
+      <div class="callout warn">
+        <div class="callout-title">Nunca exponha sua secret key</div>
+        <p>Não coloque uma <code>sk_...</code> em código de frontend, app mobile ou repositório público. Se acontecer, revogue no dashboard imediatamente e gere outra.</p>
+      </div>
+
+      <p>Envie a chave no header <code>Authorization</code>:</p>
+
+      <div class="code-block">
+        <div class="code-tabs">
+          <button class="active" data-tab="curl">cURL</button>
+        </div>
+        <pre data-tab="curl"><span class="tok-comment"># requisições sem chave, com chave inválida ou revogada recebem 401</span>
+curl https://api.pyxgate.com/v1/account \
+  -H <span class="tok-str">"Authorization: Bearer sk_test_51H8x..."</span></pre>
+        <button class="copy-btn">Copiar</button>
+      </div>
+
+      <h3>Gerando, revogando e rotacionando</h3>
+      <p>No dashboard, em <strong>Desenvolvedores</strong>: crie uma chave (nome, tipo, modo) — ela só é exibida completa uma vez. <strong>Revogar</strong> invalida a chave imediatamente e não pode ser desfeito. <strong>Rotacionar</strong> cria uma chave nova e revoga a antiga na mesma operação — use quando suspeitar de vazamento.</p>
+    </section>
+
+    <!-- ===================== ERROS ===================== -->
+    <section class="doc-section reveal" id="erros">
+      <h2>Erros</h2>
+      <p>Toda resposta de erro segue o mesmo formato:</p>
+
+      <div class="code-block">
+        <div class="code-tabs"><button class="active" data-tab="json">JSON</button></div>
+        <pre data-tab="json">{
+  <span class="tok-key">"error"</span>: {
+    <span class="tok-key">"type"</span>: <span class="tok-str">"invalid_request_error"</span>,
+    <span class="tok-key">"code"</span>: <span class="tok-str">"amount_invalid"</span>,
+    <span class="tok-key">"message"</span>: <span class="tok-str">"amount deve ser um inteiro positivo, em centavos."</span>,
+    <span class="tok-key">"param"</span>: <span class="tok-str">"amount"</span>
+  }
+}</pre>
+        <button class="copy-btn">Copiar</button>
+      </div>
+
+      <table>
+        <thead><tr><th>Type</th><th>HTTP</th><th>Significado</th></tr></thead>
+        <tbody>
+          <tr><td><code>invalid_request_error</code></td><td>400, 404</td><td>Payload inválido, recurso não encontrado, transição de estado inválida.</td></tr>
+          <tr><td><code>authentication_error</code></td><td>401</td><td>Chave de API ausente, inválida ou revogada.</td></tr>
+          <tr><td><code>card_error</code></td><td>400</td><td>Reservado para recusas específicas de adquirente de cartão.</td></tr>
+          <tr><td><code>api_error</code></td><td>429, 500</td><td>Erro do nosso lado (rate limit, erro interno).</td></tr>
+        </tbody>
+      </table>
+
+      <table>
+        <thead><tr><th>Code</th><th>Quando acontece</th></tr></thead>
+        <tbody>
+          <tr><td><code>missing_api_key</code></td><td>Header <code>Authorization</code> ausente ou mal formatado.</td></tr>
+          <tr><td><code>invalid_api_key</code></td><td>Chave não existe.</td></tr>
+          <tr><td><code>revoked_api_key</code></td><td>Chave foi revogada.</td></tr>
+          <tr><td><code>invalid_payload</code></td><td>Corpo não passou na validação.</td></tr>
+          <tr><td><code>payment_creation_failed</code></td><td>Falha ao criar o pagamento (inclui recusas de adquirente em modo live).</td></tr>
+          <tr><td><code>wrong_mode</code></td><td>Simulação chamada com uma chave <code>live</code>.</td></tr>
+          <tr><td><code>invalid_status_transition</code></td><td>Simulação num pagamento que não está mais <code>pending</code>.</td></tr>
+          <tr><td><code>idempotency_key_reused</code></td><td>Mesma <code>Idempotency-Key</code> com payload diferente.</td></tr>
+          <tr><td><code>not_found</code></td><td>Recurso não encontrado ou não pertence à sua conta.</td></tr>
+          <tr><td><code>not_implemented</code></td><td>Recurso ainda não disponível.</td></tr>
+          <tr><td><code>rate_limit_exceeded</code></td><td>Mais de 100 requisições/minuto com a mesma chave.</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- ===================== IDEMPOTÊNCIA ===================== -->
+    <section class="doc-section reveal" id="idempotencia">
+      <h2>Idempotência</h2>
+      <p>Envie um valor único por operação no header <code>Idempotency-Key</code> em requisições <code>POST</code>. Reenviar a mesma requisição (retry por timeout, rede instável) com a mesma chave e o mesmo corpo retorna a resposta original, sem duplicar a cobrança.</p>
+
+      <table>
+        <tbody>
+          <tr><td style="width:220px"><strong>Mesma chave + mesmo payload</strong></td><td>Retorna a resposta já registrada, sem reprocessar.</td></tr>
+          <tr><td><strong>Mesma chave + payload diferente</strong></td><td><code>400 idempotency_key_reused</code>.</td></tr>
+          <tr><td><strong>TTL</strong></td><td>24 horas — depois disso a chave pode ser reutilizada livremente.</td></tr>
+        </tbody>
+      </table>
+
+      <p>Suportado hoje em <code>POST /v1/payments</code>. Use um identificador que já existe no seu sistema (ID do pedido) em vez de um UUID aleatório a cada tentativa.</p>
+    </section>
+
+    <!-- ===================== REFERÊNCIA — ACCOUNT ===================== -->
+    <section class="doc-section reveal" id="account">
+      <span class="eyebrow">Referência da API</span>
+      <div class="endpoint"><span class="method get">GET</span><span class="path">/v1/account</span></div>
+      <p>Retorna a conta (merchant) associada à chave de API usada — útil para confirmar que sua integração está autenticando corretamente.</p>
+
+      <div class="code-block">
+        <div class="code-tabs">
+          <button class="active" data-tab="curl">cURL</button>
+          <button data-tab="js">Node.js</button>
+        </div>
+        <pre data-tab="curl">curl https://api.pyxgate.com/v1/account \
+  -H <span class="tok-str">"Authorization: Bearer sk_test_..."</span></pre>
+        <pre data-tab="js" hidden><span class="tok-key">const</span> res = <span class="tok-key">await</span> fetch(<span class="tok-str">"https://api.pyxgate.com/v1/account"</span>, {
+  headers: { Authorization: <span class="tok-str">`Bearer ${process.env.PYX_SECRET_KEY}`</span> },
+});
+<span class="tok-key">const</span> account = <span class="tok-key">await</span> res.json();</pre>
+        <button class="copy-btn">Copiar</button>
+      </div>
+
+      <div class="code-block">
+        <div class="code-tabs"><button class="active" data-tab="json">Resposta 200</button></div>
+        <pre data-tab="json">{
+  <span class="tok-key">"id"</span>: <span class="tok-str">"acct_654a1f2b3c4d5e6f70718293"</span>,
+  <span class="tok-key">"name"</span>: <span class="tok-str">"Loja Exemplo"</span>,
+  <span class="tok-key">"email"</span>: <span class="tok-str">"contato@lojaexemplo.com"</span>,
+  <span class="tok-key">"mode"</span>: <span class="tok-str">"test"</span>,
+  <span class="tok-key">"kyc_status"</span>: <span class="tok-str">"approved"</span>
+}</pre>
+        <button class="copy-btn">Copiar</button>
+      </div>
+    </section>
+
+    <!-- ===================== CRIAR PAGAMENTO ===================== -->
+    <section class="doc-section reveal" id="criar-pagamento">
+      <div class="endpoint"><span class="method post">POST</span><span class="path">/v1/payments</span></div>
+      <p>Cria uma cobrança Pix ou cartão. Aceita o header <a href="#idempotencia"><code>Idempotency-Key</code></a>.</p>
+
+      <table>
+        <thead><tr><th>Campo</th><th>Tipo</th><th>Descrição</th></tr></thead>
+        <tbody>
+          <tr><td><code>amount</code></td><td>integer</td><td>Obrigatório. Valor em centavos.</td></tr>
+          <tr><td><code>payment_method</code></td><td>"pix" | "card"</td><td>Obrigatório.</td></tr>
+          <tr><td><code>customer</code></td><td>object</td><td>Obrigatório. <code>name</code>, <code>email</code>, <code>document</code> (CPF/CNPJ).</td></tr>
+          <tr><td><code>metadata</code></td><td>object</td><td>Livre — útil para religar ao seu pedido interno.</td></tr>
+          <tr><td><code>card</code></td><td>object</td><td>Obrigatório se <code>payment_method: "card"</code>. Ver <a href="#guia-cartao">guia de cartão</a>.</td></tr>
+          <tr><td><code>threeds_data</code></td><td>object</td><td>Obrigatório se <code>payment_method: "card"</code>.</td></tr>
+        </tbody>
+      </table>
+
+      <div class="code-block">
+        <div class="code-tabs">
+          <button class="active" data-tab="curl">cURL</button>
+          <button data-tab="js">Node.js</button>
+        </div>
+        <pre data-tab="curl">curl -X POST https://api.pyxgate.com/v1/payments \
+  -H <span class="tok-str">"Authorization: Bearer sk_test_..."</span> \
+  -H <span class="tok-str">"Idempotency-Key: pedido-1001"</span> \
+  -H <span class="tok-str">"Content-Type: application/json"</span> \
+  -d <span class="tok-str">'{
+    "amount": 1990,
+    "payment_method": "pix",
+    "customer": {
+      "name": "Maria Compradora",
+      "email": "maria@example.com",
+      "document": "39053344705"
+    },
+    "metadata": { "order_id": "1001" }
+  }'</span></pre>
+        <pre data-tab="js" hidden><span class="tok-key">const</span> res = <span class="tok-key">await</span> fetch(<span class="tok-str">"https://api.pyxgate.com/v1/payments"</span>, {
+  method: <span class="tok-str">"POST"</span>,
+  headers: {
+    Authorization: <span class="tok-str">`Bearer ${process.env.PYX_SECRET_KEY}`</span>,
+    <span class="tok-str">"Idempotency-Key"</span>: <span class="tok-str">"pedido-1001"</span>,
+    <span class="tok-str">"Content-Type"</span>: <span class="tok-str">"application/json"</span>,
+  },
+  body: JSON.stringify({
+    amount: <span class="tok-num">1990</span>,
+    payment_method: <span class="tok-str">"pix"</span>,
+    customer: { name: <span class="tok-str">"Maria Compradora"</span>, email: <span class="tok-str">"maria@example.com"</span>, document: <span class="tok-str">"39053344705"</span> },
+    metadata: { order_id: <span class="tok-str">"1001"</span> },
+  }),
+});
+<span class="tok-key">const</span> payment = <span class="tok-key">await</span> res.json();</pre>
+        <button class="copy-btn">Copiar</button>
+      </div>
+
+      <div class="code-block">
+        <div class="code-tabs"><button class="active" data-tab="json">Resposta 201</button></div>
+        <pre data-tab="json">{
+  <span class="tok-key">"id"</span>: <span class="tok-str">"pay_6a714eb5b03f4c85d1b52f39"</span>,
+  <span class="tok-key">"status"</span>: <span class="tok-str">"pending"</span>,
+  <span class="tok-key">"payment_method"</span>: <span class="tok-str">"pix"</span>,
+  <span class="tok-key">"mode"</span>: <span class="tok-str">"test"</span>,
+  <span class="tok-key">"amount"</span>: <span class="tok-num">1990</span>,
+  <span class="tok-key">"qr_code"</span>: <span class="tok-str">"00020126..."</span>,
+  <span class="tok-key">"qr_code_base64"</span>: <span class="tok-str">"iVBORw0KGgo..."</span>
+}</pre>
+        <button class="copy-btn">Copiar</button>
+      </div>
+    </section>
+
+    <!-- ===================== CONSULTAR PAGAMENTO ===================== -->
+    <section class="doc-section reveal" id="consultar-pagamento">
+      <div class="endpoint"><span class="method get">GET</span><span class="path">/v1/payments/{id}</span></div>
+      <p>Consulta um pagamento pelo id público (<code>pay_...</code>), escopado à conta e ao modo (test/live) da chave usada.</p>
+      <div class="code-block">
+        <div class="code-tabs"><button class="active" data-tab="curl">cURL</button></div>
+        <pre data-tab="curl">curl https://api.pyxgate.com/v1/payments/pay_6a714eb5b03f4c85d1b52f39 \
+  -H <span class="tok-str">"Authorization: Bearer sk_test_..."</span></pre>
+        <button class="copy-btn">Copiar</button>
+      </div>
+    </section>
+
+    <!-- ===================== LISTAR PAGAMENTOS ===================== -->
+    <section class="doc-section reveal" id="listar-pagamentos">
+      <div class="endpoint"><span class="method get">GET</span><span class="path">/v1/payments</span></div>
+      <p>Lista pagamentos, paginado.</p>
+      <table>
+        <thead><tr><th>Query param</th><th>Descrição</th></tr></thead>
+        <tbody>
+          <tr><td><code>page</code></td><td>Padrão 1.</td></tr>
+          <tr><td><code>limit</code></td><td>Padrão 20, máximo 100.</td></tr>
+          <tr><td><code>status</code></td><td><code>pending</code> | <code>paid</code> | <code>failed</code>.</td></tr>
+          <tr><td><code>created_after</code> / <code>created_before</code></td><td>ISO 8601.</td></tr>
+        </tbody>
+      </table>
+      <div class="code-block">
+        <div class="code-tabs"><button class="active" data-tab="curl">cURL</button></div>
+        <pre data-tab="curl">curl <span class="tok-str">"https://api.pyxgate.com/v1/payments?status=paid&limit=10"</span> \
+  -H <span class="tok-str">"Authorization: Bearer sk_test_..."</span></pre>
+        <button class="copy-btn">Copiar</button>
+      </div>
+    </section>
+
+    <!-- ===================== MODO TESTE ===================== -->
+    <section class="doc-section reveal" id="modo-teste">
+      <div class="endpoint"><span class="method post">POST</span><span class="path">/v1/test/payments/{id}/pay</span></div>
+      <div class="endpoint"><span class="method post">POST</span><span class="path">/v1/test/payments/{id}/fail</span></div>
+      <p>Simula a aprovação ou falha de um pagamento. Só funciona com <code>mode: "test"</code> e <code>status: "pending"</code>, autenticado com uma chave <code>sk_test_...</code>. Dispara <code>payment.paid</code> ou <code>payment.failed</code> para os webhooks cadastrados.</p>
+      <div class="code-block">
+        <div class="code-tabs"><button class="active" data-tab="curl">cURL</button></div>
+        <pre data-tab="curl">curl -X POST https://api.pyxgate.com/v1/test/payments/pay_6a714eb5b03f4c85d1b52f39/pay \
+  -H <span class="tok-str">"Authorization: Bearer sk_test_..."</span></pre>
+        <button class="copy-btn">Copiar</button>
+      </div>
+      <p style="color:var(--slate); font-size: 13px;">Em produção, isso acontece sozinho quando o comprador paga de verdade — não existe endpoint de simulação em modo live.</p>
+    </section>
+
+    <!-- ===================== ESTORNOS ===================== -->
+    <section class="doc-section reveal" id="estornos">
+      <div class="endpoint"><span class="method post">POST</span><span class="path">/v1/refunds</span></div>
+      <div class="callout warn">
+        <div class="callout-title">Ainda não implementado</div>
+        <p>Sempre retorna <code>501 not_implemented</code>. Reverter ledger de dupla-entrada e saldo retido não é trivial — preferimos documentar isso claramente em vez de simular um estorno que não acontece de fato.</p>
+      </div>
+    </section>
+
+    <!-- ===================== WEBHOOK ENDPOINTS ===================== -->
+    <section class="doc-section reveal" id="webhook-endpoints">
+      <div class="endpoint"><span class="method post">POST</span><span class="path">/v1/webhook_endpoints</span></div>
+      <div class="endpoint"><span class="method get">GET</span><span class="path">/v1/webhook_endpoints</span></div>
+      <div class="endpoint"><span class="method patch">PATCH</span><span class="path">/v1/webhook_endpoints/{id}</span></div>
+      <div class="endpoint"><span class="method delete">DELETE</span><span class="path">/v1/webhook_endpoints/{id}</span></div>
+      <p>CRUD dos endpoints que recebem eventos. Também disponível pelo dashboard (Desenvolvedores).</p>
+      <div class="code-block">
+        <div class="code-tabs"><button class="active" data-tab="curl">cURL</button></div>
+        <pre data-tab="curl">curl -X POST https://api.pyxgate.com/v1/webhook_endpoints \
+  -H <span class="tok-str">"Authorization: Bearer sk_test_..."</span> \
+  -H <span class="tok-str">"Content-Type: application/json"</span> \
+  -d <span class="tok-str">'{"url": "https://seusite.com/webhooks/pyxgate", "events": ["payment.paid", "payment.failed"]}'</span></pre>
+        <button class="copy-btn">Copiar</button>
+      </div>
+      <p>O campo <code>secret</code> (<code>whsec_...</code>) só aparece nesta resposta e na listagem — guarde para verificar assinaturas. Em produção, <code>url</code> precisa ser <code>https://</code>.</p>
+    </section>
+
+    <!-- ===================== WEBHOOKS ===================== -->
+    <section class="doc-section reveal" id="webhooks">
+      <h2>Webhooks</h2>
+      <p>Webhooks avisam seu sistema em tempo real quando algo muda — o caso mais comum é saber quando um Pix foi pago.</p>
+
+      <h3>Eventos disponíveis</h3>
+      <table>
+        <thead><tr><th>Evento</th><th>Quando dispara</th></tr></thead>
+        <tbody>
+          <tr><td><code>payment.created</code></td><td>Um pagamento foi criado (ainda pendente).</td></tr>
+          <tr><td><code>payment.paid</code></td><td>Um pagamento foi confirmado.</td></tr>
+          <tr><td><code>payment.failed</code></td><td>Um pagamento falhou ou foi rejeitado.</td></tr>
+          <tr><td><code>payment.expired</code></td><td>Reservado — ainda não disparado (sem expiração automática de cobrança hoje).</td></tr>
+          <tr><td><code>refund.succeeded</code></td><td>Reservado — ainda não disparado (estornos não implementados).</td></tr>
+        </tbody>
+      </table>
+
+      <h3>Formato do evento</h3>
+      <div class="code-block">
+        <div class="code-tabs"><button class="active" data-tab="json">JSON</button></div>
+        <pre data-tab="json">{
+  <span class="tok-key">"id"</span>: <span class="tok-str">"evt_72e8fea8b30077bde17a0e59"</span>,
+  <span class="tok-key">"type"</span>: <span class="tok-str">"payment.paid"</span>,
+  <span class="tok-key">"created"</span>: <span class="tok-num">1785810633</span>,
+  <span class="tok-key">"data"</span>: {
+    <span class="tok-key">"object"</span>: {
+      <span class="tok-key">"id"</span>: <span class="tok-str">"pay_6a714eb5b03f4c85d1b52f39"</span>,
+      <span class="tok-key">"status"</span>: <span class="tok-str">"paid"</span>,
+      <span class="tok-key">"amount"</span>: <span class="tok-num">1990</span>
+    }
+  }
+}</pre>
+        <button class="copy-btn">Copiar</button>
+      </div>
+
+      <h3>Verificando a assinatura</h3>
+      <p>Toda entrega inclui o header <code>PYX-Signature: t=&lt;timestamp&gt;,v1=&lt;hmac&gt;</code>, onde <code>v1</code> é <code>HMAC-SHA256(secret, "{t}.{corpo_bruto}")</code>. <strong>Sempre verifique antes de confiar no payload.</strong></p>
+
+      <div class="code-block">
+        <div class="code-tabs">
+          <button class="active" data-tab="node">Node.js</button>
+          <button data-tab="php">PHP</button>
+        </div>
+        <pre data-tab="node"><span class="tok-key">const</span> crypto = require(<span class="tok-str">"crypto"</span>);
+
+<span class="tok-key">function</span> verifyPyxSignature(rawBody, signatureHeader, secret) {
+  <span class="tok-key">const</span> [tPart, v1Part] = signatureHeader.split(<span class="tok-str">","</span>);
+  <span class="tok-key">const</span> timestamp = tPart.split(<span class="tok-str">"="</span>)[1];
+  <span class="tok-key">const</span> received = v1Part.split(<span class="tok-str">"="</span>)[1];
+
+  <span class="tok-key">const</span> expected = crypto
+    .createHmac(<span class="tok-str">"sha256"</span>, secret)
+    .update(<span class="tok-str">`${timestamp}.${rawBody}`</span>)
+    .digest(<span class="tok-str">"hex"</span>);
+
+  <span class="tok-key">const</span> a = Buffer.from(expected, <span class="tok-str">"hex"</span>);
+  <span class="tok-key">const</span> b = Buffer.from(received, <span class="tok-str">"hex"</span>);
+  <span class="tok-key">return</span> a.length === b.length && crypto.timingSafeEqual(a, b);
+}</pre>
+        <pre data-tab="php" hidden><span class="tok-key">function</span> verifyPyxSignature(<span class="tok-key">string</span> $rawBody, <span class="tok-key">string</span> $signatureHeader, <span class="tok-key">string</span> $secret): <span class="tok-key">bool</span> {
+    $parts = [];
+    foreach (explode(<span class="tok-str">","</span>, $signatureHeader) <span class="tok-key">as</span> $part) {
+        [$key, $value] = explode(<span class="tok-str">"="</span>, $part, 2);
+        $parts[$key] = $value;
+    }
+
+    $timestamp = $parts[<span class="tok-str">"t"</span>] ?? <span class="tok-str">""</span>;
+    $received = $parts[<span class="tok-str">"v1"</span>] ?? <span class="tok-str">""</span>;
+    $expected = hash_hmac(<span class="tok-str">"sha256"</span>, <span class="tok-str">"{$timestamp}.{$rawBody}"</span>, $secret);
+
+    <span class="tok-key">return</span> hash_equals($expected, $received);
+}</pre>
+        <button class="copy-btn">Copiar</button>
+      </div>
+
+      <div class="callout">
+        <div class="callout-title">Retentativas</div>
+        <p>Se seu endpoint não responder <code>2xx</code>, a entrega é tentada novamente (imediata, +10s, +1min, +5min — 4 tentativas). Responda <code>200</code> rápido e processe de forma assíncrona se sua lógica for demorada.</p>
+      </div>
+    </section>
+
+    <!-- ===================== GUIA PIX ===================== -->
+    <section class="doc-section reveal" id="guia-pix">
+      <h2>Guia: Pix, do zero ao pedido liberado</h2>
+      <p>1. Gere uma chave de teste no dashboard. 2. <a href="#criar-pagamento">Crie a cobrança</a>. 3. Exiba <code>qr_code_base64</code> (imagem) e <code>qr_code</code> (copia-e-cola). 4. <a href="#webhook-endpoints">Cadastre um webhook</a> para <code>payment.paid</code>. 5. <a href="#modo-teste">Simule a confirmação</a>. 6. Consulte o pagamento e confirme <code>status: "paid"</code>. 7. No handler do webhook (depois de verificar a assinatura), libere o pedido usando o <code>order_id</code> que você mandou em <code>metadata</code>.</p>
+      <p>Em produção, o passo 5 não existe — o status muda sozinho quando o Pix é pago de verdade, e você só precisa reagir ao webhook.</p>
+    </section>
+
+    <!-- ===================== GUIA CARTÃO ===================== -->
+    <section class="doc-section reveal" id="guia-cartao">
+      <h2>Guia: Cartão</h2>
+      <div class="callout warn">
+        <div class="callout-title">Leia antes de integrar</div>
+        <p>A integração de cartão <strong>não está pronta para uso por terceiros ainda</strong>. Duas coisas a saber:</p>
+        <p><strong>1. PCI:</strong> número, validade e CVV trafegam direto no corpo da sua requisição para <code>POST /v1/payments</code> — isso coloca você no escopo de responsabilidade PCI-DSS equivalente a manipular dados de cartão diretamente. Não há tokenização client-side hoje.</p>
+        <p><strong>2. 3DS obrigatório, fluxo incompleto:</strong> a Zendry recusa cartão sem <code>threeds_data</code>, gerado por um desafio 3DS no navegador do comprador. Hoje, nem o nosso próprio checkout interno termina esse passo — não temos um exemplo funcional para dar.</p>
+      </div>
+      <p>Em <strong>modo teste</strong>, <code>threeds_data</code> ainda é exigido pela validação mas não é verificado de verdade — envie qualquer objeto não vazio, a cobrança nasce <code>pending</code> e você confirma via simulação, igual ao Pix.</p>
+      <p><strong>Recomendação:</strong> use Pix por enquanto, ou fale com o time da PYX Gate para alinhar o roadmap de cartão.</p>
+    </section>
+
+    <!-- ===================== GUIA CHECKOUT ===================== -->
+    <section class="doc-section reveal" id="guia-checkout">
+      <h2>Guia: checkout de e-commerce</h2>
+      <p>Fluxo recomendado: seu backend cria o pedido → chama <code>POST /v1/payments</code> (server-side, nunca no navegador do comprador) → exibe o QR code retornado → aguarda o webhook <code>payment.paid</code> → marca o pedido como pago e libera o produto/acesso.</p>
+
+      <div class="card">
+        <strong>Checklist antes de produção</strong>
+        <ul style="margin: 10px 0 0; padding-left: 20px; color: var(--slate);">
+          <li>Cobrança criada pelo backend, nunca pelo navegador do comprador.</li>
+          <li>Secret key só em variável de ambiente do servidor.</li>
+          <li>Webhook verifica a assinatura antes de confiar no payload.</li>
+          <li>Quem marca o pedido como pago é o webhook, não o polling do frontend.</li>
+          <li>Handler do webhook é idempotente.</li>
+          <li><code>Idempotency-Key</code> usado na criação da cobrança.</li>
+          <li>Testado em modo teste de ponta a ponta antes de trocar para chave live.</li>
+        </ul>
+      </div>
+
+      <div class="page-nav">
+        <a href="#introducao" class="prev"><span class="dir">← Voltar ao topo</span>Introdução</a>
+        <a href="/docs/openapi.yaml" class="next"><span class="dir">Especificação completa</span>openapi.yaml ↗</a>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<script src="/docs/app.js"></script>
+</body>
+</html>

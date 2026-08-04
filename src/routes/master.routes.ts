@@ -4,6 +4,8 @@ import {
   generateMasterToken,
   validateMasterToken,
   getMostSaleProducts,
+  listTransactions,
+  listAcquirers,
 } from "../controllers/master.controller";
 import { cacheMiddleware } from "../middleware/cache";
 
@@ -32,5 +34,17 @@ router.get("/kpas", cacheMiddleware(30), getKpas);
  * Top 10 produtos mais vendidos
  */
 router.get("/top-products", cacheMiddleware(60), getMostSaleProducts);
+
+/**
+ * 📋 GET /api/master/transactions?limit=&status=
+ * Lista as transações mais recentes da plataforma
+ */
+router.get("/transactions", listTransactions);
+
+/**
+ * 🏦 GET /api/master/acquirers
+ * Lista as adquirentes existentes no código, status de configuração e sellers atribuídos
+ */
+router.get("/acquirers", listAcquirers);
 
 export default router;

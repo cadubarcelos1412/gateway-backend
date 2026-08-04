@@ -4,6 +4,7 @@ import { decodeToken } from "../config/auth";
 import { User } from "../models/user.model";
 import { Product } from "../models/product.model";
 import { Checkout } from "../models/checkout.model";
+import { getZendryAccessToken } from "../lib/zendry/client";
 
 /* 🔑 Utilitário: pegar usuário pelo token */
 const getUserFromToken = async (token?: string) => {
@@ -183,6 +184,17 @@ export const deleteCheckout = async (req: Request, res: Response): Promise<void>
   } catch (error) {
     console.error("❌ Erro em deleteCheckout:", error);
     res.status(500).json({ status: false, msg: "Erro interno ao deletar checkout." });
+  }
+};
+
+/* 🔐 Token da Zendry pro SDK de 3DS (roda no navegador do comprador) */
+export const getZendryThreedsToken = async (_req: Request, res: Response): Promise<void> => {
+  try {
+    const token = await getZendryAccessToken();
+    res.status(200).json({ token });
+  } catch (error) {
+    console.error("❌ Erro ao obter token 3DS da Zendry:", error);
+    res.status(502).json({ status: false, msg: "Erro ao obter token do gateway de pagamento." });
   }
 };
 

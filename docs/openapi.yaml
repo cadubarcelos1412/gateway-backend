@@ -1,0 +1,517 @@
+openapi: 3.1.0
+info:
+  title: PYX Gate API
+  version: "1.0.0"
+  description: |
+    API pública da PYX Gate para criação de cobranças Pix e cartão,
+    consulta de pagamentos e recebimento de eventos via webhook.
+
+    Autenticação por chave de API (`Authorization: Bearer sk_...`). Toda
+    transação criada com uma chave `sk_test_...` roda em **modo teste**:
+    nunca move dinheiro real, nunca chama a adquirente de verdade — a
+    confirmação é feita manualmente via `/v1/test/payments/{id}/pay` (ou
+    `/fail`). Chaves `sk_live_...` processam pagamentos reais.
+  contact:
+    name: PYX Gate
+servers:
+  - url: http://localhost:3000/v1
+    description: Ambiente local de desenvolvimento
+  - url: https://api.pyxgate.com/v1
+    description: Produção (domínio ilustrativo — ainda não implantado)
+
+security:
+  - bearerAuth: []
+
+tags:
+  - name: Account
+    description: Dados da conta associada à chave de API.
+  - name: Payments
+    description: Criação e consulta de cobranças (Pix e cartão).
+  - name: Refunds
+    description: Estornos (ainda não suportado).
+  - name: Test Mode
+    description: Simulação de pagamentos em modo teste.
+  - name: Webhook Endpoints
+    description: Cadastro de endpoints que recebem eventos da PYX Gate.
+
+paths:
+  /account:
+    get:
+      operationId: getAccount
+      tags: [Account]
+      summary: Retorna a conta (merchant) associada à chave de API usada.
+      responses:
+        "200":
+          description: Conta autenticada.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Account"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /payments:
+    post:
+      operationId: createPayment
+      tags: [Payments]
+      summary: Cria uma cobrança (Pix ou cartão).
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreatePaymentRequest"
+            examples:
+              pix:
+                summary: Cobrança Pix
+                value:
+                  amount: 1990
+                  currency: BRL
+                  payment_method: pix
+                  customer:
+                    name: "Maria Compradora"
+                    email: "maria@example.com"
+                    document: "39053344705"
+                  metadata:
+                    order_id: "ORD-123"
+              card:
+                summary: Cobrança no cartão (após rodar o 3DS no navegador do comprador)
+                value:
+                  amount: 15000
+                  currency: BRL
+                  payment_method: card
+                  customer:
+                    name: "Maria Compradora"
+                    email: "maria@example.com"
+                    document: "39053344705"
+                  card:
+                    number: "4242424242424242"
+                    holder_name: "MARIA COMPRADORA"
+                    expiration_date: "122029"
+                    security_code: "123"
+                    installments: 1
+                  threeds_data:
+                    session_id: "abc123"
+      responses:
+        "201":
+          description: Pagamento criado.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Payment"
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    get:
+      operationId: listPayments
+      tags: [Payments]
+      summary: Lista pagamentos (paginado), escopado ao modo (test/live) da chave usada.
+      parameters:
+        - name: page
+          in: query
+          schema: { type: integer, default: 1, minimum: 1 }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 20, minimum: 1, maximum: 100 }
+        - name: status
+          in: query
+          description: Filtra por status público (`pending`, `paid`, `failed`).
+          schema: { type: string, enum: [pending, paid, failed] }
+        - name: created_after
+          in: query
+          description: ISO 8601. Filtra pagamentos criados após esta data.
+          schema: { type: string, format: date-time }
+        - name: created_before
+          in: query
+          description: ISO 8601. Filtra pagamentos criados antes desta data.
+          schema: { type: string, format: date-time }
+      responses:
+        "200":
+          description: Lista paginada.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaymentList"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /payments/{id}:
+    get:
+      operationId: getPayment
+      tags: [Payments]
+      summary: Consulta um pagamento pelo id público (pay_...).
+      parameters:
+        - $ref: "#/components/parameters/PaymentId"
+      responses:
+        "200":
+          description: Pagamento encontrado.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Payment"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /refunds:
+    post:
+      operationId: createRefund
+      tags: [Refunds]
+      summary: Cria um estorno. Ainda não implementado.
+      description: |
+        Sempre retorna `501 not_implemented`. Não existe lógica de estorno
+        no gateway ainda (reverter ledger de dupla-entrada + saldo retido
+        não é trivial) — documentado aqui em vez de simular um estorno que
+        não acontece de fato.
+      responses:
+        "501":
+          description: Não implementado.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /test/payments/{id}/pay:
+    post:
+      operationId: simulatePaymentPaid
+      tags: [Test Mode]
+      summary: Simula a aprovação de um pagamento em modo teste.
+      description: |
+        Só funciona para pagamentos com `mode: "test"` e `status: "pending"`,
+        autenticado com uma chave `sk_test_...`. Dispara o evento de webhook
+        `payment.paid`.
+      parameters:
+        - $ref: "#/components/parameters/PaymentId"
+      responses:
+        "200":
+          description: Pagamento marcado como pago.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Payment"
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /test/payments/{id}/fail:
+    post:
+      operationId: simulatePaymentFailed
+      tags: [Test Mode]
+      summary: Simula a falha de um pagamento em modo teste.
+      description: |
+        Mesmas regras de `/test/payments/{id}/pay`, mas marca como `failed`
+        e dispara `payment.failed`.
+      parameters:
+        - $ref: "#/components/parameters/PaymentId"
+      responses:
+        "200":
+          description: Pagamento marcado como falho.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Payment"
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /webhook_endpoints:
+    post:
+      operationId: createWebhookEndpoint
+      tags: [Webhook Endpoints]
+      summary: Cadastra um endpoint para receber eventos.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateWebhookEndpointRequest"
+            examples:
+              default:
+                value:
+                  url: "https://seusite.com/webhooks/pyxgate"
+                  events: ["payment.paid", "payment.failed"]
+      responses:
+        "201":
+          description: Endpoint criado. O campo `secret` (whsec_...) só é útil aqui e na listagem — guarde para verificar assinaturas.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookEndpoint"
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
+    get:
+      operationId: listWebhookEndpoints
+      tags: [Webhook Endpoints]
+      summary: Lista os endpoints cadastrados.
+      responses:
+        "200":
+          description: Lista de endpoints.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  object: { type: string, example: list }
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/WebhookEndpoint"
+
+  /webhook_endpoints/{id}:
+    patch:
+      operationId: updateWebhookEndpoint
+      tags: [Webhook Endpoints]
+      summary: Atualiza url, eventos ou ativa/desativa um endpoint.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, example: "we_654a1..." }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                url: { type: string, format: uri }
+                events:
+                  type: array
+                  items: { type: string }
+                active: { type: boolean }
+      responses:
+        "200":
+          description: Endpoint atualizado.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookEndpoint"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      operationId: deleteWebhookEndpoint
+      tags: [Webhook Endpoints]
+      summary: Remove um endpoint.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "204":
+          description: Removido.
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: "sk_live_... / sk_test_..."
+      description: |
+        Secret key gerada no dashboard (Desenvolvedores → Chaves de API).
+        Publishable keys (`pk_...`) não autenticam nenhum endpoint desta API
+        — são só para uso client-side em SDKs futuros.
+
+  parameters:
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: false
+      description: |
+        Garante que reenviar a mesma requisição (rede instável, retry do seu
+        lado) não crie uma cobrança duplicada. Mesma chave + mesmo payload
+        retorna a resposta original. Mesma chave + payload diferente é
+        rejeitado com 400. TTL de 24h.
+      schema:
+        type: string
+        example: "pedido-8f3a21"
+    PaymentId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        example: "pay_654a1f2b3c4d5e6f70718293"
+
+  responses:
+    InvalidRequest:
+      description: Payload inválido ou requisição malformada.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Unauthorized:
+      description: Chave de API ausente, inválida ou revogada.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    NotFound:
+      description: Recurso não encontrado (ou não pertence à conta autenticada).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            type:
+              type: string
+              enum: [invalid_request_error, authentication_error, card_error, api_error]
+            code:
+              type: string
+              example: invalid_api_key
+            message:
+              type: string
+            param:
+              type: string
+              nullable: true
+
+    Account:
+      type: object
+      properties:
+        id: { type: string, example: "acct_654a1f2b3c4d5e6f70718293" }
+        name: { type: string }
+        email: { type: string }
+        mode: { type: string, enum: [test, live] }
+        kyc_status: { type: string }
+
+    Customer:
+      type: object
+      required: [name, email, document]
+      properties:
+        name: { type: string }
+        email: { type: string, format: email }
+        document:
+          type: string
+          description: CPF (11 dígitos) ou CNPJ (14 dígitos), somente números.
+        phone: { type: string }
+
+    Card:
+      type: object
+      required: [number, holder_name, expiration_date, security_code]
+      properties:
+        number: { type: string, description: "Número completo do cartão." }
+        holder_name: { type: string }
+        expiration_date: { type: string, description: "Formato MMyyyy, ex.: 122029." }
+        security_code: { type: string }
+        installments: { type: integer, default: 1, minimum: 1, maximum: 14 }
+
+    CreatePaymentRequest:
+      type: object
+      required: [amount, payment_method, customer]
+      properties:
+        amount:
+          type: integer
+          description: Valor em centavos.
+          example: 1990
+        currency:
+          type: string
+          enum: [BRL]
+          default: BRL
+        payment_method:
+          type: string
+          enum: [pix, card]
+        description: { type: string }
+        metadata:
+          type: object
+          additionalProperties: true
+        customer:
+          $ref: "#/components/schemas/Customer"
+        card:
+          $ref: "#/components/schemas/Card"
+        threeds_data:
+          type: object
+          description: |
+            Obrigatório quando payment_method é "card". Dados de autenticação
+            3DS calculados pelo SDK Zendry no navegador do comprador — ver
+            guia-cartao.md. Bag genérico chave/valor.
+          additionalProperties:
+            type: string
+
+    Payment:
+      type: object
+      properties:
+        id: { type: string, example: "pay_654a1f2b3c4d5e6f70718293" }
+        object: { type: string, example: payment }
+        amount: { type: integer, description: "Centavos." }
+        fee: { type: integer, description: "Centavos." }
+        net_amount: { type: integer, description: "Centavos." }
+        currency: { type: string, example: BRL }
+        status: { type: string, enum: [pending, paid, failed] }
+        payment_method: { type: string, enum: [pix, card, boleto] }
+        mode: { type: string, enum: [test, live] }
+        customer:
+          $ref: "#/components/schemas/Customer"
+        metadata:
+          type: object
+          additionalProperties: true
+        qr_code:
+          type: string
+          description: Payload copia-e-cola do Pix (quando payment_method=pix).
+        qr_code_base64:
+          type: string
+          description: QR code em base64 (quando payment_method=pix).
+        card:
+          type: object
+          properties:
+            last4: { type: string }
+            brand: { type: string }
+            authorization_code: { type: string }
+        created:
+          type: integer
+          description: Unix timestamp (segundos).
+
+    PaymentList:
+      type: object
+      properties:
+        object: { type: string, example: list }
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/Payment"
+        page: { type: integer }
+        limit: { type: integer }
+        total: { type: integer }
+        has_more: { type: boolean }
+
+    CreateWebhookEndpointRequest:
+      type: object
+      required: [url, events]
+      properties:
+        url:
+          type: string
+          format: uri
+          description: Deve usar https:// em produção.
+        events:
+          type: array
+          items:
+            type: string
+            enum: ["*", payment.created, payment.paid, payment.failed, payment.expired, refund.succeeded]
+
+    WebhookEndpoint:
+      type: object
+      properties:
+        id: { type: string, example: "we_654a1f2b3c4d5e6f70718293" }
+        url: { type: string }
+        events:
+          type: array
+          items: { type: string }
+        secret:
+          type: string
+          description: "whsec_... — use para verificar a assinatura PYX-Signature."
+        active: { type: boolean }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }

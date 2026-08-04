@@ -1,0 +1,53 @@
+# Blueprint de deploy no Render (https://render.com/docs/blueprint-spec).
+# Usa o Dockerfile já existente — nenhuma mudança de código necessária.
+#
+# Como usar:
+# 1. Suba este repositório pro GitHub (se ainda não estiver lá).
+# 2. No painel do Render: New > Blueprint > selecione o repositório.
+# 3. Render lê este arquivo, cria o serviço e pede pra preencher as variáveis
+#    marcadas com "sync: false" abaixo (nunca ficam salvas neste arquivo).
+services:
+  - type: web
+    name: pyxgate-api
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    plan: free
+    healthCheckPath: /
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: MONGO_URI
+        sync: false
+      - key: SECRET_TOKEN
+        sync: false
+      - key: ISSUER
+        value: gateway-api
+      - key: BASE_URL
+        sync: false
+      - key: ALLOWED_ORIGINS
+        sync: false
+      - key: PAGARME_ACCOUNT_ID
+        sync: false
+      - key: PAGARME_PUBLIC_KEY
+        sync: false
+      - key: PAGARME_SECRET_KEY
+        sync: false
+      - key: PAGARME_WEBHOOK_SECRET
+        sync: false
+      - key: ZENDRY_CLIENT_ID
+        sync: false
+      - key: ZENDRY_CLIENT_SECRET
+        sync: false
+      - key: ZENDRY_WEBHOOK_SECRET
+        sync: false
+      - key: INTERNAL_WEBHOOK_SECRET
+        sync: false
+      - key: WEBHOOK_ALLOWED_IPS
+        sync: false
+      - key: CLOUDINARY_CLOUD_NAME
+        sync: false
+      - key: CLOUDINARY_API_KEY
+        sync: false
+      - key: CLOUDINARY_API_SECRET
+        sync: false

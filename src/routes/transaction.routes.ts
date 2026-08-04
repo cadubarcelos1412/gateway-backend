@@ -1,16 +1,18 @@
+// src/routes/transaction.routes.ts
 import { Router, Request, Response, NextFunction } from "express";
 import {
   createTransaction,
   consultTransactionByID,
   webhookTransaction,
 } from "../controllers/transaction.controller";
+import { zendryWebhook } from "../controllers/zendryWebhook.controller";
 import { requireApprovedKyc } from "../middleware/kycGuard";
 import { transactionLogger } from "../middleware/transactionLogger";
 
 const router = Router();
 
 /* -------------------------------------------------------------------------- */
-/* 🧪 Middleware – validação de criação de transação                          */
+/* 🧪 Middleware – Validação de criação de transação                          */
 /* -------------------------------------------------------------------------- */
 const validateCreateTransaction = (
   req: Request,
@@ -25,17 +27,29 @@ const validateCreateTransaction = (
   }
 
   if (!method || !["pix", "credit_card", "boleto"].includes(method)) {
-    res.status(400).json({ status: false, msg: "Método de pagamento inválido. Use: 'pix', 'credit_card' ou 'boleto'." });
+    res.status(400).json({
+      status: false,
+      msg: "Método de pagamento inválido. Use: 'pix', 'credit_card' ou 'boleto'.",
+    });
     return;
   }
 
-  if (!description || typeof description !== "string" || description.trim().length < 3) {
-    res.status(400).json({ status: false, msg: "Campo 'description' obrigatório e deve ter pelo menos 3 caracteres." });
+  if (
+    !description ||
+    typeof description !== "string" ||
+    description.trim().length < 3
+  ) {
+    res.status(400).json({
+      status: false,
+      msg: "Campo 'description' obrigatório e deve ter pelo menos 3 caracteres.",
+    });
     return;
   }
 
   if (!productId || typeof productId !== "string") {
-    res.status(400).json({ status: false, msg: "Campo 'productId' obrigatório." });
+    res
+      .status(400)
+      .json({ status: false, msg: "Campo 'productId' obrigatório." });
     return;
   }
 
@@ -57,45 +71,56 @@ const validateCreateTransaction = (
 };
 
 /* -------------------------------------------------------------------------- */
-/* 🛡️ ROTAS DE TRANSAÇÕES – PRONTAS PARA SANDBOX                              */
+/* 🧾 Criar transação real (multiadquirente)                                  */
 /* -------------------------------------------------------------------------- */
-
 /**
- * 🧾 Criar transação real
  * - Exige KYC aprovado
  * - Valida payload
  * - Loga tentativa
+ * - Encaminha para a adquirente (Pagar.me)
  */
 router.post(
   "/create",
   requireApprovedKyc,
   validateCreateTransaction,
   transactionLogger,
-  async (req: Request, res: Response): Promise<void> => {
-    await createTransaction(req, res);
-  }
+  (req: Request, res: Response): Promise<void> => createTransaction(req, res)
 );
 
+/* -------------------------------------------------------------------------- */
+/* 🔎 Consultar transação por ID                                              */
+/* -------------------------------------------------------------------------- */
 /**
- * 🔎 Consultar transação por ID
- * - Garante formato válido
+ * - Retorna todos os dados da transação pelo `_id`
+ * - Inclui flags, retenção e purchaseData
  */
 router.get(
   "/consult",
-  async (req: Request, res: Response): Promise<void> => {
-    await consultTransactionByID(req, res);
-  }
+  (req: Request, res: Response): Promise<void> => consultTransactionByID(req, res)
 );
 
+/* -------------------------------------------------------------------------- */
+/* 📡 Webhook – Pagar.me                                                      */
+/* -------------------------------------------------------------------------- */
 /**
- * 📡 Webhook seguro
- * - Atualiza status da transação
+ * - Atualiza status da transação com base no externalId
+ * - Exige assinatura HMAC válida (`x-hub-signature`)
  */
 router.post(
   "/webhook",
-  async (req: Request, res: Response): Promise<void> => {
-    await webhookTransaction(req, res);
-  }
+  (req: Request, res: Response): Promise<void> => webhookTransaction(req, res)
+);
+
+/* -------------------------------------------------------------------------- */
+/* 📡 Webhook – Zendry (Pix + Cartão)                                         */
+/* -------------------------------------------------------------------------- */
+/**
+ * - Atualiza status da transação com base no externalId (reference_code/muid)
+ * - Exige `?key=` válido (ZENDRY_WEBHOOK_SECRET) em vez de assinatura HMAC
+ */
+router.post(
+  "/webhook/zendry",
+  (req: Request, res: Response): Promise<void> => zendryWebhook(req, res)
 );
 
 export default router;

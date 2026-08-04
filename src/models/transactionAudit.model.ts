@@ -33,6 +33,12 @@ export interface ITransactionAudit extends Document {
 
   attemptCount?: number;
   flags: RiskFlag[];
+
+  // 🧠 Campos de inteligência antifraude
+  riskScore?: number; // pontuação de 0 a 100
+  retentionDays?: number; // dias de retenção aplicados
+  retentionAmount?: number; // valor retido em R$
+
   createdAt: Date;
 }
 
@@ -74,16 +80,34 @@ const TransactionAuditSchema = new Schema<ITransactionAudit>(
       },
     ],
 
+    // 📊 Inteligência antifraude adicional
+    riskScore: { type: Number, min: 0, max: 100, default: 0 },
+    retentionDays: { type: Number, default: 0 },
+    retentionAmount: { type: Number, default: 0 },
+
     createdAt: { type: Date, default: () => new Date(), immutable: true },
   },
   { versionKey: false }
 );
 
-/* 📊 Índices estratégicos */
+/* -------------------------------------------------------------------------- */
+/* 📊 Índices estratégicos para investidor e auditoria                         */
+/* -------------------------------------------------------------------------- */
+
+// 🔍 Por seller e data — essencial para relatórios e detecção de anomalias
 TransactionAuditSchema.index({ sellerId: 1, createdAt: -1 });
+
+// 🚨 Por flag — usado em dashboards antifraude
 TransactionAuditSchema.index({ flags: 1 });
+
+// 📍 Por IP — facilita bloqueio de ranges e detecção de padrões
 TransactionAuditSchema.index({ ipAddress: 1 });
+
+// 🧑‍💼 Por documento do comprador — útil para detectar compradores reincidentes
 TransactionAuditSchema.index({ buyerDocument: 1 });
+
+// 📈 Por score de risco — essencial em machine learning futuro
+TransactionAuditSchema.index({ riskScore: -1 });
 
 export const TransactionAudit = mongoose.model<ITransactionAudit>(
   "TransactionAudit",

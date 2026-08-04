@@ -4,6 +4,7 @@ import { decodeToken } from "../config/auth";
 import { User } from "../models/user.model";
 import { Seller } from "../models/seller.model";
 import { Subaccount } from "../models/subaccount.model";
+import { ACQUIRER_KEYS } from "../acquirers";
 
 /* 🔑 Utilitário – pegar usuário autenticado pelo token */
 const getUserFromToken = async (token?: string) => {
@@ -249,5 +250,81 @@ export const verifySellerKYC = async (req: Request, res: Response): Promise<void
   } catch (error) {
     console.error("❌ Erro em verifySellerKYC:", error);
     res.status(500).json({ status: false, msg: "Erro interno ao atualizar status de KYC." });
+  }
+};
+
+/* 🔒 Bloquear/desbloquear seller (independente do status de KYC) */
+export const toggleSellerStatus = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const user = await getUserFromToken(req.headers.authorization);
+    if (!user || user.role !== "master") {
+      res.status(403).json({ status: false, msg: "Acesso negado. Apenas master pode alterar o status." });
+      return;
+    }
+
+    const { id } = req.params;
+    const { status } = req.body;
+
+    if (!Types.ObjectId.isValid(id)) {
+      res.status(400).json({ status: false, msg: "ID de seller inválido." });
+      return;
+    }
+
+    if (!["active", "suspended", "blocked"].includes(status)) {
+      res.status(400).json({
+        status: false,
+        msg: "Status inválido. Use 'active', 'suspended' ou 'blocked'.",
+      });
+      return;
+    }
+
+    const seller = await Seller.findByIdAndUpdate(id, { status }, { new: true }).lean();
+    if (!seller) {
+      res.status(404).json({ status: false, msg: "Seller não encontrado." });
+      return;
+    }
+
+    res.status(200).json({ status: true, msg: `✅ Status atualizado para '${status}'.`, seller });
+  } catch (error) {
+    console.error("❌ Erro em toggleSellerStatus:", error);
+    res.status(500).json({ status: false, msg: "Erro interno ao atualizar status." });
+  }
+};
+
+/* 🏦 Definir qual adquirente processa as transações de um seller – Apenas master */
+export const updateSellerAcquirer = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const user = await getUserFromToken(req.headers.authorization);
+    if (!user || user.role !== "master") {
+      res.status(403).json({ status: false, msg: "Acesso negado. Apenas master pode definir o adquirente." });
+      return;
+    }
+
+    const { id } = req.params;
+    const { acquirer } = req.body;
+
+    if (!Types.ObjectId.isValid(id)) {
+      res.status(400).json({ status: false, msg: "ID de seller inválido." });
+      return;
+    }
+
+    if (!ACQUIRER_KEYS.includes(acquirer)) {
+      res.status(400).json({
+        status: false,
+        msg: `Adquirente inválida. Use uma de: ${ACQUIRER_KEYS.join(", ")}.`,
+      });
+      return;
+    }
+
+    const seller = await Seller.findByIdAndUpdate(id, { acquirer }, { new: true }).lean();
+    if (!seller) {
+      res.status(404).json({ status: false, msg: "Seller não encontrado." });
+      return;
+    }
+
+    res.status(200).json({ status: true, msg: `✅ Adquirente definida como '${acquirer}'.`, seller });
+  } catch (error) {
+    console.error("❌ Erro em updateSellerAcquirer:", error);
+    res.status(500).json({ status: false, msg: "Erro interno ao atualizar adquirente." });
   }
 };
