@@ -9,7 +9,9 @@ import { Transaction } from "../models/transaction.model";
 
 const MONGO_URI = process.env.MONGO_URI || "mongodb://localhost:27017/gateway-db";
 
-const DEV_PASSWORD = "kissa123";
+const DEV_PASSWORD = "PyxGate123";
+const MASTER_EMAIL = "admin@pyxgate.com";
+const SELLER_EMAIL = "seller@pyxgate.com";
 
 const seedDev = async () => {
   try {
@@ -17,15 +19,15 @@ const seedDev = async () => {
     console.log("✅ Conectado ao MongoDB");
 
     await Promise.all([
-      User.deleteMany({ email: { $in: ["master@kissa.dev", "seller@kissa.dev"] } }),
-      Seller.deleteMany({ email: "seller@kissa.dev" }),
+      User.deleteMany({ email: { $in: [MASTER_EMAIL, SELLER_EMAIL, "master@kissa.dev", "seller@kissa.dev"] } }),
+      Seller.deleteMany({ email: { $in: [SELLER_EMAIL, "seller@kissa.dev"] } }),
     ]);
 
     const hashedPassword = await bcrypt.hash(DEV_PASSWORD, 10);
 
     const master = await User.create({
       name: "Master Admin",
-      email: "master@kissa.dev",
+      email: MASTER_EMAIL,
       password: hashedPassword,
       role: "master",
       status: "active",
@@ -34,7 +36,7 @@ const seedDev = async () => {
 
     const seller = await User.create({
       name: "Seller Demo",
-      email: "seller@kissa.dev",
+      email: SELLER_EMAIL,
       password: hashedPassword,
       role: "seller",
       status: "active",
@@ -71,7 +73,7 @@ const seedDev = async () => {
         country: "BR",
         postalCode: "01000000",
       },
-      acquirer: "pagarme",
+      acquirer: "zendry",
       kycStatus: "approved",
       status: "active",
     });
@@ -133,8 +135,8 @@ const seedDev = async () => {
     ]);
 
     console.log("✅ Seed de desenvolvimento criado com sucesso!");
-    console.log(`   Master: master@kissa.dev / ${DEV_PASSWORD}`);
-    console.log(`   Seller: seller@kissa.dev / ${DEV_PASSWORD}`);
+    console.log(`   Master: ${MASTER_EMAIL} / ${DEV_PASSWORD}`);
+    console.log(`   Seller: ${SELLER_EMAIL} / ${DEV_PASSWORD}`);
     console.log(`   Master ID: ${master._id}`);
     process.exit(0);
   } catch (err) {
