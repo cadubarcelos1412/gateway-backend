@@ -5,6 +5,7 @@ import { Seller } from "../models/seller.model";
 import { createToken, decodeToken } from "../config/auth";
 import { ACQUIRER_KEYS } from "../acquirers";
 import { getOrCreateDefaultFeeConfig, SystemFeeConfig } from "../models/systemFeeConfig.model";
+import { SplitRule } from "../models/splitRule.model";
 
 /* 🔑 Utilitário — pegar usuário autenticado pelo token e exigir role master */
 const requireMasterUser = async (req: Request, res: Response) => {
@@ -290,5 +291,27 @@ export const updateDefaultFees = async (req: Request, res: Response): Promise<vo
   } catch (error) {
     console.error("❌ Erro em updateDefaultFees:", error);
     res.status(500).json({ status: false, msg: "Erro interno ao atualizar taxas padrão." });
+  }
+};
+
+/**
+ * 🤝 GET /api/master/split-rules
+ * Visão de supervisão — todas as parcerias de split da plataforma.
+ */
+export const listAllSplitRules = async (req: Request, res: Response): Promise<void> => {
+  const user = await requireMasterUser(req, res);
+  if (!user) return;
+
+  try {
+    const rules = await SplitRule.find()
+      .populate("payingSellerId", "name email")
+      .populate("recipientSellerId", "name email")
+      .sort({ createdAt: -1 })
+      .lean();
+
+    res.status(200).json({ status: true, rules });
+  } catch (error) {
+    console.error("❌ Erro em listAllSplitRules:", error);
+    res.status(500).json({ status: false, msg: "Erro interno ao listar parcerias." });
   }
 };

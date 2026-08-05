@@ -8,6 +8,7 @@ import {
   listAcquirers,
   getDefaultFees,
   updateDefaultFees,
+  listAllSplitRules,
 } from "../controllers/master.controller";
 import { cacheMiddleware } from "../middleware/cache";
 
@@ -56,5 +57,11 @@ router.get("/acquirers", listAcquirers);
  */
 router.get("/fees/default", getDefaultFees);
 router.put("/fees/default", updateDefaultFees);
+
+/**
+ * 🤝 GET /api/master/split-rules
+ * Visão de supervisão — todas as parcerias de split da plataforma.
+ */
+router.get("/split-rules", listAllSplitRules);
 
 export default router;

@@ -104,10 +104,29 @@ export const uploadKycDocument = async (req: Request, res: Response): Promise<vo
 
 export const listKycDocuments = async (req: Request, res: Response): Promise<void> => {
   try {
+    const rawToken = req.headers.authorization?.replace("Bearer ", "");
+    if (!rawToken) {
+      res.status(401).json({ status: false, msg: "Token ausente." });
+      return;
+    }
+
+    const payload = await decodeToken(rawToken);
+    if (!payload || !payload.id) {
+      res.status(401).json({ status: false, msg: "Token inválido." });
+      return;
+    }
+
     const sellerId = req.params.sellerId;
     const seller = await Seller.findById(sellerId);
     if (!seller) {
       res.status(404).json({ status: false, msg: "Seller não encontrado." });
+      return;
+    }
+
+    const isOwner = payload.id.toString() === seller.userId.toString();
+    const isMaster = payload.role === "master";
+    if (!isOwner && !isMaster) {
+      res.status(403).json({ status: false, msg: "Acesso negado." });
       return;
     }
 

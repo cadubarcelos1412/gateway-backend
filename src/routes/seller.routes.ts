@@ -9,6 +9,9 @@ import {
   updateSellerAcquirer,
   getSellerFees,
   updateSellerFees,
+  listMySplitRules,
+  createSplitRule,
+  revokeSplitRule,
 } from "../controllers/seller.controller";
 
 const router = Router();
@@ -33,6 +36,22 @@ router.get("/", listSellers);
  * @access  Autenticado
  */
 router.get("/me", getMySellerProfile);
+
+/**
+ * @route   GET/POST /api/sellers/me/split-rules
+ * @desc    Listar/criar parcerias de split (o seller logado é o pagador) —
+ *          destinatário precisa já ser um seller com KYC aprovado
+ * @access  Autenticado (seller)
+ */
+router.get("/me/split-rules", listMySplitRules);
+router.post("/me/split-rules", createSplitRule);
+
+/**
+ * @route   DELETE /api/sellers/me/split-rules/:id
+ * @desc    Revogar uma parceria própria
+ * @access  Autenticado (seller)
+ */
+router.delete("/me/split-rules/:id", revokeSplitRule);
 
 /**
  * @route   GET /api/sellers/:id

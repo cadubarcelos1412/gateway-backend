@@ -6,6 +6,7 @@ import { Seller } from "../models/seller.model";
 import { Subaccount } from "../models/subaccount.model";
 import { ACQUIRER_KEYS } from "../acquirers";
 import { getOrCreateDefaultFeeConfig } from "../models/systemFeeConfig.model";
+import { SplitRule } from "../models/splitRule.model";
 
 /* 🔑 Utilitário – pegar usuário autenticado pelo token */
 const getUserFromToken = async (token?: string) => {
@@ -400,5 +401,146 @@ export const updateSellerFees = async (req: Request, res: Response): Promise<voi
   } catch (error) {
     console.error("❌ Erro em updateSellerFees:", error);
     res.status(500).json({ status: false, msg: "Erro interno ao atualizar taxas do seller." });
+  }
+};
+
+/* 🤝 Listar as regras de split do seller logado (como pagador) */
+export const listMySplitRules = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const user = await getUserFromToken(req.headers.authorization);
+    if (!user) {
+      res.status(403).json({ status: false, msg: "Token inválido." });
+      return;
+    }
+
+    const seller = await Seller.findOne({ userId: user._id });
+    if (!seller) {
+      res.status(404).json({ status: false, msg: "Perfil de seller não encontrado." });
+      return;
+    }
+
+    const rules = await SplitRule.find({ payingSellerId: seller._id }).sort({ createdAt: -1 }).lean();
+    res.status(200).json({ status: true, rules });
+  } catch (error) {
+    console.error("❌ Erro em listMySplitRules:", error);
+    res.status(500).json({ status: false, msg: "Erro interno ao listar parcerias." });
+  }
+};
+
+/* 🤝 Criar uma regra de split — o destinatário precisa já ser um seller com KYC aprovado */
+export const createSplitRule = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const user = await getUserFromToken(req.headers.authorization);
+    if (!user) {
+      res.status(403).json({ status: false, msg: "Token inválido." });
+      return;
+    }
+
+    const payingSeller = await Seller.findOne({ userId: user._id });
+    if (!payingSeller) {
+      res.status(404).json({ status: false, msg: "Perfil de seller não encontrado." });
+      return;
+    }
+
+    const { recipientEmail, percentage, description } = req.body;
+
+    if (!recipientEmail || !percentage) {
+      res.status(400).json({ status: false, msg: "recipientEmail e percentage são obrigatórios." });
+      return;
+    }
+    if (percentage <= 0 || percentage > 100) {
+      res.status(400).json({ status: false, msg: "Percentual deve ser maior que 0 e no máximo 100." });
+      return;
+    }
+
+    const email = String(recipientEmail).trim().toLowerCase();
+    const recipientSeller = await Seller.findOne({ email });
+
+    if (!recipientSeller) {
+      res.status(400).json({
+        status: false,
+        msg: "Esse e-mail ainda não tem conta cadastrada na plataforma.",
+      });
+      return;
+    }
+    if (recipientSeller.kycStatus !== "approved" && recipientSeller.kycStatus !== "active") {
+      res.status(400).json({
+        status: false,
+        msg: "Esse e-mail tem conta, mas o KYC ainda não foi aprovado. A parceria só pode ser criada depois da aprovação.",
+      });
+      return;
+    }
+    if (String(recipientSeller._id) === String(payingSeller._id)) {
+      res.status(400).json({ status: false, msg: "Você não pode criar uma parceria com sua própria conta." });
+      return;
+    }
+
+    const activeRules = await SplitRule.find({ payingSellerId: payingSeller._id, status: "active" });
+    const currentTotal = activeRules.reduce((sum, r) => sum + r.percentage, 0);
+    if (currentTotal + Number(percentage) > 100) {
+      res.status(400).json({
+        status: false,
+        msg: `A soma das parcerias ativas não pode passar de 100%. Hoje: ${currentTotal}%, disponível: ${round100(100 - currentTotal)}%.`,
+      });
+      return;
+    }
+
+    const rule = await SplitRule.create({
+      payingSellerId: payingSeller._id,
+      recipientSellerId: recipientSeller._id,
+      recipientEmail: email,
+      percentage: Number(percentage),
+      description: description ? String(description).trim() : undefined,
+      status: "active",
+      createdBy: user._id,
+    });
+
+    res.status(201).json({ status: true, msg: "✅ Parceria criada com sucesso.", rule });
+  } catch (error) {
+    console.error("❌ Erro em createSplitRule:", error);
+    res.status(500).json({ status: false, msg: "Erro interno ao criar parceria." });
+  }
+};
+
+function round100(n: number): number {
+  return Math.round(n * 100) / 100;
+}
+
+/* 🤝 Revogar uma regra de split própria */
+export const revokeSplitRule = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const user = await getUserFromToken(req.headers.authorization);
+    if (!user) {
+      res.status(403).json({ status: false, msg: "Token inválido." });
+      return;
+    }
+
+    const seller = await Seller.findOne({ userId: user._id });
+    if (!seller) {
+      res.status(404).json({ status: false, msg: "Perfil de seller não encontrado." });
+      return;
+    }
+
+    const { id } = req.params;
+    if (!Types.ObjectId.isValid(id)) {
+      res.status(400).json({ status: false, msg: "ID de parceria inválido." });
+      return;
+    }
+
+    const rule = await SplitRule.findOneAndUpdate(
+      { _id: id, payingSellerId: seller._id },
+      { $set: { status: "revoked" } },
+      { new: true }
+    );
+
+    if (!rule) {
+      res.status(404).json({ status: false, msg: "Parceria não encontrada." });
+      return;
+    }
+
+    res.status(200).json({ status: true, msg: "✅ Parceria revogada.", rule });
+  } catch (error) {
+    console.error("❌ Erro em revokeSplitRule:", error);
+    res.status(500).json({ status: false, msg: "Erro interno ao revogar parceria." });
   }
 };

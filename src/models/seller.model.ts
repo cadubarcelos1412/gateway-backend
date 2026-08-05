@@ -29,15 +29,11 @@ export interface IDocumentFile {
   checksum?: string;
 }
 
-export interface IKycDocuments {
-  rgFront?: IDocumentFile;
-  rgBack?: IDocumentFile;
-  cpf?: IDocumentFile;
-  cnpjDoc?: IDocumentFile;
-  articlesOfAssociation?: IDocumentFile;
-  powerOfAttorney?: IDocumentFile;
-  proofOfAddress?: IDocumentFile;
-}
+// Chave = docType (ex.: "cnh_frente", "comprovante_endereco" — ver REQUIRED_DOCS em
+// kyc.controller.ts, fonte única de verdade pra quais chaves existem por tipo PF/PJ).
+// Map em vez de campos fixos: evita reeditar o schema toda vez que a lista de
+// documentos exigidos mudar, e já bate com o que uploadKycDocument grava hoje.
+export type IKycDocuments = Map<string, IDocumentFile>;
 
 export interface IStatusHistory {
   from: KycStatus;
@@ -100,18 +96,8 @@ const DocumentFileSchema = new Schema<IDocumentFile>(
   { _id: false }
 );
 
-const KycDocumentsSchema = new Schema<IKycDocuments>(
-  {
-    rgFront: { type: DocumentFileSchema },
-    rgBack: { type: DocumentFileSchema },
-    cpf: { type: DocumentFileSchema },
-    cnpjDoc: { type: DocumentFileSchema },
-    articlesOfAssociation: { type: DocumentFileSchema },
-    powerOfAttorney: { type: DocumentFileSchema },
-    proofOfAddress: { type: DocumentFileSchema },
-  },
-  { _id: false }
-);
+// Map<docType, IDocumentFile> — ver comentário em IKycDocuments acima.
+const KycDocumentsSchemaType = { type: Map, of: DocumentFileSchema, default: () => new Map() };
 
 const AddressSchema = new Schema<IAddress>(
   {
@@ -184,7 +170,7 @@ const SellerSchema = new Schema<ISeller>(
       index: true,
     },
 
-    kycDocuments: { type: KycDocumentsSchema, default: {} },
+    kycDocuments: KycDocumentsSchemaType,
 
     statusHistory: { type: [StatusHistorySchema], default: [] },
 

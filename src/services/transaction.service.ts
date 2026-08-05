@@ -5,6 +5,7 @@ import { decodeToken } from "../config/auth";
 
 import { Seller, ISeller } from "../models/seller.model";
 import { Wallet } from "../models/wallet.model";
+import { SplitRule } from "../models/splitRule.model";
 import { Product } from "../models/product.model";
 import { Transaction, ITransaction } from "../models/transaction.model";
 
@@ -244,6 +245,18 @@ export class TransactionService {
       settlementDaysOverride: feeTable?.settlementDays,
     });
 
+    // 🤝 Split de pagamentos — parcerias ativas do seller pagador. O corte de
+    // cada uma sai do netAmount; a retenção por risco continua incidindo só
+    // sobre a parte que fica com o seller pagador (o risco avaliado é dele).
+    const splitRules = await SplitRule.find({ payingSellerId: seller._id, status: "active" }).session(session);
+    const splitAllocations = splitRules.map((rule) => ({
+      recipientSellerId: rule.recipientSellerId as Types.ObjectId,
+      percentage: rule.percentage,
+      amount: round(netAmount * (rule.percentage / 100)),
+    }));
+    const totalSplitAmount = round(splitAllocations.reduce((sum, a) => sum + a.amount, 0));
+    const sellerShare = round(netAmount - totalSplitAmount);
+
     const [tx] = await Transaction.create(
       [
         {
@@ -268,7 +281,7 @@ export class TransactionService {
             customer,
             products: product ? [{ name: product.name, price: product.price }] : undefined,
           },
-          metadata,
+          metadata: splitAllocations.length > 0 ? { ...metadata, splits: splitAllocations } : metadata,
         },
       ],
       { session }
@@ -278,7 +291,13 @@ export class TransactionService {
       await postLedgerEntries(
         [
           { account: "contas_a_receber_adquirente", type: "debit", amount },
-          { account: "passivo_seller", type: "credit", amount: netAmount },
+          { account: "passivo_seller", type: "credit", amount: sellerShare },
+          ...splitAllocations.map((a) => ({
+            account: "passivo_seller",
+            type: "credit" as const,
+            amount: a.amount,
+            sellerId: a.recipientSellerId.toString(),
+          })),
           { account: "receita_taxa_kissa", type: "credit", amount: fee },
         ],
         {
@@ -294,8 +313,36 @@ export class TransactionService {
       throw new Error("Erro ao registrar lançamentos contábeis (ledger).");
     }
 
+    // 🤝 Créditos das parcerias de split — cada recipient recebe direto na
+    // própria carteira, sem a retenção por risco (que é sobre o perfil do
+    // seller pagador, não do parceiro).
+    if (splitAllocations.length > 0) {
+      const recipientSellers = await Seller.find({
+        _id: { $in: splitAllocations.map((a) => a.recipientSellerId) },
+      }).session(session);
+      const sellerIdToUserId = new Map(recipientSellers.map((s) => [String(s._id), s.userId]));
+
+      for (const allocation of splitAllocations) {
+        const recipientUserId = sellerIdToUserId.get(String(allocation.recipientSellerId));
+        if (!recipientUserId) continue; // segurança — não deveria acontecer, regra já valida na criação
+
+        const recipientWallet = await Wallet.findOne({ userId: recipientUserId }).session(session);
+        if (!recipientWallet) continue;
+
+        recipientWallet.balance.unAvailable.push({ amount: allocation.amount, availableIn });
+        recipientWallet.log.push({
+          transactionId: tx._id as Types.ObjectId,
+          type: "topup",
+          method: method === "credit_card" ? "card" : method === "boleto" ? "bill" : "pix",
+          amount: allocation.amount,
+          security: { createdAt: new Date(), ipAddress: ip, userAgent, riskFlags: [] },
+        });
+        await recipientWallet.save({ session });
+      }
+    }
+
     wallet.balance.unAvailable.push({
-      amount: netAmount - retentionAmount,
+      amount: sellerShare - retentionAmount,
       availableIn,
     });
 
@@ -303,7 +350,7 @@ export class TransactionService {
       transactionId: tx._id as Types.ObjectId,
       type: "topup",
       method: method === "credit_card" ? "card" : method === "boleto" ? "bill" : "pix",
-      amount: netAmount - retentionAmount,
+      amount: sellerShare - retentionAmount,
       security: {
         createdAt: new Date(),
         ipAddress: ip,

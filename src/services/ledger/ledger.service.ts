@@ -7,6 +7,10 @@ interface PostLedgerEntryInput {
   type: LedgerEntryType;
   amount: number;
   currency?: 'BRL';
+  /** Sobrepõe ctx.sellerId só nesta linha — usado quando um batch reparte
+   * dinheiro entre vários sellers (ex.: split de pagamentos), onde cada
+   * linha de crédito pertence a um seller diferente do dono da transação. */
+  sellerId?: string;
 }
 
 interface PostLedgerContext {
@@ -66,7 +70,7 @@ export async function postLedgerEntries(
 
       return {
         transactionId: ctx.transactionId,
-        sellerId: ctx.sellerId,
+        sellerId: entry.sellerId ?? ctx.sellerId,
         batchId,
         sequence: i,
         account: entry.account,
