@@ -4,6 +4,27 @@ import { User } from "../models/user.model";
 import { Seller } from "../models/seller.model";
 import { createToken, decodeToken } from "../config/auth";
 import { ACQUIRER_KEYS } from "../acquirers";
+import { getOrCreateDefaultFeeConfig, SystemFeeConfig } from "../models/systemFeeConfig.model";
+
+/* 🔑 Utilitário — pegar usuário autenticado pelo token e exigir role master */
+const requireMasterUser = async (req: Request, res: Response) => {
+  const token = req.headers.authorization?.replace("Bearer ", "");
+  if (!token) {
+    res.status(401).json({ status: false, msg: "Token ausente." });
+    return null;
+  }
+  const payload = await decodeToken(token);
+  if (!payload?.id) {
+    res.status(401).json({ status: false, msg: "Token inválido." });
+    return null;
+  }
+  const user = await User.findById(payload.id);
+  if (!user || user.role !== "master") {
+    res.status(403).json({ status: false, msg: "Acesso negado. Apenas master." });
+    return null;
+  }
+  return user;
+};
 
 /**
  * 🔐 Gera token master (via SECRET_TOKEN do .env)
@@ -223,5 +244,51 @@ export const listAcquirers = async (_req: Request, res: Response): Promise<void>
   } catch (error) {
     console.error("❌ Erro em listAcquirers:", error);
     res.status(500).json({ status: false, msg: "Erro interno ao listar adquirentes." });
+  }
+};
+
+/**
+ * 💳 GET /api/master/fees/default
+ * Tabela de taxas padrão da plataforma (snapshot usado em todo seller novo).
+ */
+export const getDefaultFees = async (req: Request, res: Response): Promise<void> => {
+  const user = await requireMasterUser(req, res);
+  if (!user) return;
+
+  try {
+    const config = await getOrCreateDefaultFeeConfig();
+    res.status(200).json({ status: true, feeTable: config.feeTable });
+  } catch (error) {
+    console.error("❌ Erro em getDefaultFees:", error);
+    res.status(500).json({ status: false, msg: "Erro interno ao buscar taxas padrão." });
+  }
+};
+
+/**
+ * 💳 PUT /api/master/fees/default
+ * Atualiza a tabela de taxas padrão — NÃO altera sellers já cadastrados
+ * (cada um tem seu próprio snapshot em Seller.feeTable).
+ */
+export const updateDefaultFees = async (req: Request, res: Response): Promise<void> => {
+  const user = await requireMasterUser(req, res);
+  if (!user) return;
+
+  try {
+    const { feeTable } = req.body;
+    if (!feeTable) {
+      res.status(400).json({ status: false, msg: "feeTable é obrigatório." });
+      return;
+    }
+
+    const config = await SystemFeeConfig.findOneAndUpdate(
+      { key: "default" },
+      { $set: { feeTable } },
+      { new: true, upsert: true, runValidators: true }
+    );
+
+    res.status(200).json({ status: true, msg: "✅ Taxas padrão atualizadas.", feeTable: config.feeTable });
+  } catch (error) {
+    console.error("❌ Erro em updateDefaultFees:", error);
+    res.status(500).json({ status: false, msg: "Erro interno ao atualizar taxas padrão." });
   }
 };

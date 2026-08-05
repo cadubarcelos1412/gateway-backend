@@ -9,6 +9,8 @@ interface RetentionInput {
   method: PaymentMethod;
   netAmount: number;
   riskLevel: RiskLevel;
+  /** Dias de liquidação vindos do feeTable do seller (ex.: 30) — sobrepõe o fallback padrão por método. */
+  settlementDaysOverride?: number;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -19,7 +21,7 @@ export class RetentionEngine {
    * Calcula retenção financeira, percentual aplicado e data de liberação.
    * Baseia-se na política ativa e no nível de risco calculado.
    */
-  static async calculate({ method, netAmount, riskLevel }: RetentionInput) {
+  static async calculate({ method, netAmount, riskLevel, settlementDaysOverride }: RetentionInput) {
     const policy = await RetentionPolicy.findOne({
       method,
       riskLevel,
@@ -30,9 +32,10 @@ export class RetentionEngine {
     const percentage = policy?.percentage || 0;
     const retentionAmount = round(netAmount * (percentage / 100));
 
-    // 📅 Dias de retenção com fallback seguro por método
+    // 📅 Dias de retenção — feeTable.settlementDays do seller tem prioridade
+    // sobre a política de risco (que continua controlando só o "quanto retém a mais").
     const fallbackDays = method === "pix" ? 0 : method === "boleto" ? 3 : 15;
-    const days = policy?.days ?? fallbackDays;
+    const days = settlementDaysOverride ?? policy?.days ?? fallbackDays;
 
     const availableIn = new Date(Date.now() + days * 24 * 60 * 60 * 1000);
 

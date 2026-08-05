@@ -7,6 +7,8 @@ import {
   verifySellerKYC,
   toggleSellerStatus,
   updateSellerAcquirer,
+  getSellerFees,
+  updateSellerFees,
 } from "../controllers/seller.controller";
 
 const router = Router();
@@ -59,5 +61,14 @@ router.patch("/:id/toggle-status", toggleSellerStatus);
  * @access  Master
  */
 router.patch("/:id/acquirer", updateSellerAcquirer);
+
+/**
+ * @route   GET/PATCH /api/sellers/:id/fees
+ * @desc    Ver/editar a tabela de taxas individual do seller (pix, cartão por
+ *          bandeira/parcela, liquidação, antecipação) – Apenas master
+ * @access  Master
+ */
+router.get("/:id/fees", getSellerFees);
+router.patch("/:id/fees", updateSellerFees);
 
 export default router;

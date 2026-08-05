@@ -1,10 +1,15 @@
 import { Request, Response } from "express";
+import mongoose from "mongoose";
 import { decodeToken } from "../config/auth";
 import { User } from "../models/user.model";
 import { Wallet } from "../models/wallet.model";
 import { Transaction } from "../models/transaction.model";
 import { Product } from "../models/product.model";
 import { Checkout } from "../models/checkout.model";
+import { Seller } from "../models/seller.model";
+import { getOrCreateDefaultFeeConfig } from "../models/systemFeeConfig.model";
+import { AnticipationService } from "../services/anticipation.service";
+import { AnticipationTier } from "../models/anticipationRequest.model";
 
 /**
  * 🔐 Extrai e valida o id do usuário logado a partir do Bearer token.
@@ -139,5 +144,71 @@ export const getMyCredentials = async (req: Request, res: Response): Promise<voi
   } catch (err) {
     console.error("❌ Erro em getMyCredentials:", err);
     res.status(500).json({ status: false, msg: "Erro interno ao buscar credenciais." });
+  }
+};
+
+/**
+ * GET /api/user/fees
+ * Retorna a tabela de taxas efetiva do seller logado (override próprio, ou o
+ * padrão global se ele ainda não tiver um snapshot individual).
+ */
+export const getMyFees = async (req: Request, res: Response): Promise<void> => {
+  const userId = await getAuthUserId(req, res);
+  if (!userId) return;
+
+  try {
+    const seller = await Seller.findOne({ userId }).lean();
+    if (!seller) {
+      res.status(404).json({ status: false, msg: "Perfil de seller não encontrado." });
+      return;
+    }
+
+    const feeTable = seller.feeTable ?? (await getOrCreateDefaultFeeConfig()).feeTable;
+    res.status(200).json({ status: true, feeTable });
+  } catch (err) {
+    console.error("❌ Erro em getMyFees:", err);
+    res.status(500).json({ status: false, msg: "Erro interno ao buscar taxas." });
+  }
+};
+
+/**
+ * POST /api/user/wallet/anticipate
+ * body: { unAvailableEntryId, tier: "day15" | "day2" }
+ */
+export const anticipateWallet = async (req: Request, res: Response): Promise<void> => {
+  const userId = await getAuthUserId(req, res);
+  if (!userId) return;
+
+  const { unAvailableEntryId, tier } = req.body as { unAvailableEntryId?: string; tier?: AnticipationTier };
+
+  if (!unAvailableEntryId || !["day15", "day2"].includes(tier || "")) {
+    res.status(400).json({ status: false, msg: "unAvailableEntryId e tier ('day15' ou 'day2') são obrigatórios." });
+    return;
+  }
+
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
+  try {
+    const { payoutAmount, extraFeeAmount } = await AnticipationService.anticipate(
+      new mongoose.Types.ObjectId(userId),
+      unAvailableEntryId,
+      tier as AnticipationTier,
+      session
+    );
+    await session.commitTransaction();
+
+    res.status(200).json({
+      status: true,
+      msg: "✅ Antecipação realizada com sucesso.",
+      payoutAmount,
+      extraFeeAmount,
+    });
+  } catch (error: any) {
+    await session.abortTransaction();
+    console.error("❌ Erro em anticipateWallet:", error);
+    res.status(400).json({ status: false, msg: error.message || "Erro ao antecipar saldo." });
+  } finally {
+    session.endSession();
   }
 };

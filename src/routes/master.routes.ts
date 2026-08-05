@@ -6,6 +6,8 @@ import {
   getMostSaleProducts,
   listTransactions,
   listAcquirers,
+  getDefaultFees,
+  updateDefaultFees,
 } from "../controllers/master.controller";
 import { cacheMiddleware } from "../middleware/cache";
 
@@ -46,5 +48,13 @@ router.get("/transactions", listTransactions);
  * Lista as adquirentes existentes no código, status de configuração e sellers atribuídos
  */
 router.get("/acquirers", listAcquirers);
+
+/**
+ * 💳 GET/PUT /api/master/fees/default
+ * Tabela de taxas padrão da plataforma (pix, cartão por bandeira/parcela,
+ * liquidação, antecipação) — usada como snapshot em todo seller novo.
+ */
+router.get("/fees/default", getDefaultFees);
+router.put("/fees/default", updateDefaultFees);
 
 export default router;

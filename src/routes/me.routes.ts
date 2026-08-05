@@ -6,6 +6,8 @@ import {
   getMyProducts,
   getMyCheckouts,
   getMyCredentials,
+  getMyFees,
+  anticipateWallet,
 } from "../controllers/me.controller";
 
 const router = Router();
@@ -21,5 +23,7 @@ router.get("/transactions", getMyTransactions);
 router.get("/products", getMyProducts);
 router.get("/checkouts", getMyCheckouts);
 router.get("/credentials", getMyCredentials);
+router.get("/fees", getMyFees);
+router.post("/wallet/anticipate", anticipateWallet);
 
 export default router;

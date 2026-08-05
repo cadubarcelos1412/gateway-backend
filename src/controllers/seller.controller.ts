@@ -5,6 +5,7 @@ import { User } from "../models/user.model";
 import { Seller } from "../models/seller.model";
 import { Subaccount } from "../models/subaccount.model";
 import { ACQUIRER_KEYS } from "../acquirers";
+import { getOrCreateDefaultFeeConfig } from "../models/systemFeeConfig.model";
 
 /* 🔑 Utilitário – pegar usuário autenticado pelo token */
 const getUserFromToken = async (token?: string) => {
@@ -44,6 +45,8 @@ export const registerSeller = async (req: Request, res: Response): Promise<void>
 
     const userId = new Types.ObjectId(String(user._id));
 
+    const defaultFeeConfig = await getOrCreateDefaultFeeConfig();
+
     const seller = new Seller({
       userId,
       name: String(name).trim(),
@@ -53,6 +56,9 @@ export const registerSeller = async (req: Request, res: Response): Promise<void>
       documentNumber: cleanDoc,
       address,
       kycStatus: "pending",
+      // 💳 Snapshot da tabela padrão no momento do cadastro — mudanças futuras no
+      // padrão global não alteram sellers já cadastrados (só edição manual altera).
+      feeTable: JSON.parse(JSON.stringify(defaultFeeConfig.feeTable)),
       statusHistory: [
         {
           from: "pending",
@@ -326,5 +332,73 @@ export const updateSellerAcquirer = async (req: Request, res: Response): Promise
   } catch (error) {
     console.error("❌ Erro em updateSellerAcquirer:", error);
     res.status(500).json({ status: false, msg: "Erro interno ao atualizar adquirente." });
+  }
+};
+
+/* 💳 Ver a tabela de taxas efetiva de um seller específico – Apenas master */
+export const getSellerFees = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const user = await getUserFromToken(req.headers.authorization);
+    if (!user || user.role !== "master") {
+      res.status(403).json({ status: false, msg: "Acesso negado. Apenas master pode ver taxas de sellers." });
+      return;
+    }
+
+    const { id } = req.params;
+    if (!Types.ObjectId.isValid(id)) {
+      res.status(400).json({ status: false, msg: "ID de seller inválido." });
+      return;
+    }
+
+    const seller = await Seller.findById(id).lean();
+    if (!seller) {
+      res.status(404).json({ status: false, msg: "Seller não encontrado." });
+      return;
+    }
+
+    const feeTable = seller.feeTable ?? (await getOrCreateDefaultFeeConfig()).feeTable;
+    res.status(200).json({ status: true, feeTable, isOverride: Boolean(seller.feeTable) });
+  } catch (error) {
+    console.error("❌ Erro em getSellerFees:", error);
+    res.status(500).json({ status: false, msg: "Erro interno ao buscar taxas do seller." });
+  }
+};
+
+/* 💳 Definir a tabela de taxas individual de um seller – Apenas master */
+export const updateSellerFees = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const user = await getUserFromToken(req.headers.authorization);
+    if (!user || user.role !== "master") {
+      res.status(403).json({ status: false, msg: "Acesso negado. Apenas master pode alterar taxas de sellers." });
+      return;
+    }
+
+    const { id } = req.params;
+    const { feeTable } = req.body;
+
+    if (!Types.ObjectId.isValid(id)) {
+      res.status(400).json({ status: false, msg: "ID de seller inválido." });
+      return;
+    }
+    if (!feeTable) {
+      res.status(400).json({ status: false, msg: "feeTable é obrigatório." });
+      return;
+    }
+
+    const seller = await Seller.findByIdAndUpdate(
+      id,
+      { $set: { feeTable } },
+      { new: true, runValidators: true }
+    ).lean();
+
+    if (!seller) {
+      res.status(404).json({ status: false, msg: "Seller não encontrado." });
+      return;
+    }
+
+    res.status(200).json({ status: true, msg: "✅ Taxas do seller atualizadas.", feeTable: seller.feeTable });
+  } catch (error) {
+    console.error("❌ Erro em updateSellerFees:", error);
+    res.status(500).json({ status: false, msg: "Erro interno ao atualizar taxas do seller." });
   }
 };

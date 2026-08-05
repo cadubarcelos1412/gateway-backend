@@ -1,5 +1,7 @@
 // src/models/seller.model.ts
 import mongoose, { Schema, Document, Types } from "mongoose";
+import { IFeeTable } from "./feeTable.types";
+import { FeeTableSchema } from "./feeTable.schema";
 
 /* -------------------------------------------------------------------------- */
 /* 📌 Tipos auxiliares                                                        */
@@ -76,6 +78,7 @@ export interface ISeller extends Document {
   statusHistory: IStatusHistory[];
 
   split: ISplitConfig;
+  feeTable?: IFeeTable; // 💳 taxa real (pix in/out, cartão por bandeira×parcela, D dias, antecipação) — snapshot do padrão global na criação, editável individualmente
 
   status: "active" | "suspended" | "blocked";
 
@@ -198,6 +201,10 @@ const SellerSchema = new Schema<ISeller>(
         },
       },
     },
+
+    // 💳 Tabela de taxas real — ausente em sellers antigos (fallback pro split acima
+    // até o backfill rodar), populada a partir do SystemFeeConfig ao criar o seller.
+    feeTable: { type: FeeTableSchema, required: false },
 
     status: {
       type: String,

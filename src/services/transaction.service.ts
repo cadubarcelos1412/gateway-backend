@@ -10,6 +10,7 @@ import { Transaction, ITransaction } from "../models/transaction.model";
 
 import { calculatePixTax, round } from "../utils/fees";
 import { transactionSchema } from "../validation/transaction.schema";
+import { normalizeCardBrand } from "../models/feeTable.types";
 
 import { RiskEngine } from "./riskEngine";
 import { RetentionEngine } from "./retentionEngine";
@@ -146,18 +147,7 @@ export class TransactionService {
     const wallet = await Wallet.findOne({ userId: seller.userId });
     if (!wallet) throw new Error("Carteira não encontrada.");
 
-    const fixed = seller?.split?.cashIn?.[method]?.fixed || 0;
-    const percentage = seller?.split?.cashIn?.[method]?.percentage || 0;
-    const fee = round(calculatePixTax(amount, fixed, percentage));
-    const netAmount = round(amount - fee);
-
     const { flags: riskFlags, level: riskLevel } = RiskEngine.evaluate({ amount, ip, seller });
-
-    const { retentionAmount, availableIn } = await RetentionEngine.calculate({
-      method,
-      netAmount,
-      riskLevel,
-    });
 
     const acquirerKey = (seller as any).acquirer || "pagarme";
     const acquirer = resolveAcquirer(acquirerKey);
@@ -211,10 +201,48 @@ export class TransactionService {
         flags: ["FAILED_ATTEMPT", ...riskFlags],
         description: err?.message || "Erro desconhecido",
         riskLevel,
-        retentionAmount,
       });
       throw new Error("Erro ao criar transação na adquirente.");
     }
+
+    // 💳 Taxa calculada aqui (depois da adquirente responder) porque cartão só
+    // revela a bandeira real no retorno (paymentDetails.cardBrand) — pix não
+    // depende disso, mas segue o mesmo ponto no código pra manter um único
+    // caminho em vez de duas ramificações duplicadas.
+    const feeTable = seller.feeTable;
+    let fee: number;
+    if (method === "pix" && !feeTable) {
+      // Fallback só pra sellers antigos sem feeTable ainda (deve sumir após backfill).
+      const fixed = seller?.split?.cashIn?.pix?.fixed || 0;
+      const percentage = seller?.split?.cashIn?.pix?.percentage || 0;
+      fee = round(calculatePixTax(amount, fixed, percentage));
+    } else if (method === "pix") {
+      fee = round(calculatePixTax(amount, 0, feeTable!.pixIn.percentage));
+    } else if (method === "credit_card") {
+      const installments = card?.installments || 1;
+      if (feeTable) {
+        const brand = normalizeCardBrand(paymentDetails?.cardBrand);
+        const pct = feeTable.cardFees[brand][String(installments)] ?? feeTable.cardFees.standard["1"];
+        fee = round(calculatePixTax(amount, 0, pct));
+      } else {
+        const fixed = seller?.split?.cashIn?.credit_card?.fixed || 0;
+        const percentage = seller?.split?.cashIn?.credit_card?.percentage || 0;
+        fee = round(calculatePixTax(amount, fixed, percentage));
+      }
+    } else {
+      // boleto — segue o modelo antigo, fora do escopo da tabela nova.
+      const fixed = seller?.split?.cashIn?.boleto?.fixed || 0;
+      const percentage = seller?.split?.cashIn?.boleto?.percentage || 0;
+      fee = round(calculatePixTax(amount, fixed, percentage));
+    }
+    const netAmount = round(amount - fee);
+
+    const { retentionAmount, availableIn } = await RetentionEngine.calculate({
+      method,
+      netAmount,
+      riskLevel,
+      settlementDaysOverride: feeTable?.settlementDays,
+    });
 
     const [tx] = await Transaction.create(
       [
