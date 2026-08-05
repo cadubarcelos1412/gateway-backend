@@ -14,10 +14,10 @@ info:
   contact:
     name: PYX Gate
 servers:
+  - url: https://pyxgate-api.onrender.com/v1
+    description: Produção (domínio próprio api.pyxgate.com ainda não configurado — use esta URL). Não há sandbox separado — use uma chave sk_test_... nesta mesma URL para modo teste.
   - url: http://localhost:3000/v1
-    description: Ambiente local de desenvolvimento
-  - url: https://api.pyxgate.com/v1
-    description: Produção (domínio ilustrativo — ainda não implantado)
+    description: Ambiente local de desenvolvimento (só relevante para contribuir com o código da PYX Gate)
 
 security:
   - bearerAuth: []
@@ -27,8 +27,10 @@ tags:
     description: Dados da conta associada à chave de API.
   - name: Payments
     description: Criação e consulta de cobranças (Pix e cartão).
+  - name: Card Authentication
+    description: Autenticação 3DS para pagamentos com cartão (só sellers com adquirente Zendry).
   - name: Refunds
-    description: Estornos (ainda não suportado).
+    description: Estornos. Funciona para sellers com adquirente Pagar.me; para Zendry, endpoint ainda não confirmado com o suporte deles.
   - name: Test Mode
     description: Simulação de pagamentos em modo teste.
   - name: Webhook Endpoints
@@ -157,19 +159,95 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
 
+  /card_authentications/token:
+    get:
+      operationId: getCardAuthenticationToken
+      tags: [Card Authentication]
+      summary: Devolve o token necessário pro desafio 3DS no navegador do comprador.
+      description: |
+        Chame do SEU backend (nunca do navegador — usa sua chave secreta) e
+        repasse o `token` retornado pro seu frontend, que o usa em
+        `ZendrySDKThreeds.init_threeds({ token, amount, payment_form, ... })`
+        — o SDK client-side (`https://cdn.zendry.com/v1/zendry-sdk-threeds.min.js`)
+        cria a sessão 3DS e roda o desafio sozinho, direto no navegador do
+        comprador contra a Zendry (não passa pelo backend da PYX Gate).
+
+        **Atenção**: esse token fica exposto no navegador do SEU comprador —
+        é o mesmo Bearer que autentica toda a comunicação da PYX Gate com a
+        Zendry, não escopado só pra 3DS. Ver `docs/guia-cartao.md` pro fluxo
+        completo, incluindo o schema de `payment_form` (não documentado
+        publicamente pela Zendry, confirmado por sondagem empírica).
+
+        Só funciona para sellers com adquirente `zendry`.
+      responses:
+        "200":
+          description: Token obtido.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token: { type: string }
+        "400":
+          description: Seller não usa adquirente Zendry.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "502":
+          description: Falha ao obter o token na Zendry.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
   /refunds:
     post:
       operationId: createRefund
       tags: [Refunds]
-      summary: Cria um estorno. Ainda não implementado.
+      summary: Estorna um pagamento com status "paid".
       description: |
-        Sempre retorna `501 not_implemented`. Não existe lógica de estorno
-        no gateway ainda (reverter ledger de dupla-entrada + saldo retido
-        não é trivial) — documentado aqui em vez de simular um estorno que
-        não acontece de fato.
+        Reverte o ledger de dupla-entrada e o saldo retido/disponível do
+        seller — mas só DEPOIS de confirmar o estorno na adquirente. Hoje só
+        funciona de verdade para sellers com adquirente `pagarme` (estorno
+        real via SDK oficial). Para `zendry`, o endpoint de estorno nunca foi
+        confirmado com o suporte deles — a chamada falha com
+        `acquirer_refund_unsupported` ou `acquirer_refund_failed` em vez de
+        fingir que o estorno aconteceu.
+
+        Só estorno TOTAL por enquanto (sem valor parcial). Só pagamentos
+        `mode: "live"` com status `paid` podem ser estornados.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [payment_id]
+              properties:
+                payment_id: { type: string, example: "pay_654a1f2b3c4d5e6f70718293" }
+                reason: { type: string, maxLength: 500 }
       responses:
+        "200":
+          description: Pagamento estornado.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Payment"
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
         "501":
-          description: Não implementado.
+          description: Adquirente do seller não suporta estorno (ex. zendry, ainda não confirmado com o suporte deles).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "502":
+          description: A adquirente recusou ou falhou ao processar o estorno.
           content:
             application/json:
               schema:
@@ -450,7 +528,7 @@ components:
         fee: { type: integer, description: "Centavos." }
         net_amount: { type: integer, description: "Centavos." }
         currency: { type: string, example: BRL }
-        status: { type: string, enum: [pending, paid, failed] }
+        status: { type: string, enum: [pending, paid, failed, refunded] }
         payment_method: { type: string, enum: [pix, card, boleto] }
         mode: { type: string, enum: [test, live] }
         customer:
@@ -473,6 +551,12 @@ components:
         created:
           type: integer
           description: Unix timestamp (segundos).
+        refund:
+          type: object
+          description: Presente só quando status é "refunded".
+          properties:
+            reason: { type: string }
+            refunded_at: { type: integer, description: "Unix timestamp (segundos)." }
 
     PaymentList:
       type: object

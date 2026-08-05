@@ -16,7 +16,7 @@ export interface IWallet extends Document {
   };
   log: {
     transactionId: Types.ObjectId;
-    type: "topup" | "withdraw";
+    type: "topup" | "withdraw" | "reversal";
     method: "card" | "pix" | "bill" | "manual" | "crypto";
     amount: number;
     security: {
@@ -62,7 +62,7 @@ const WalletSchema = new Schema<IWallet>(
         },
         type: {
           type: String,
-          enum: ["topup", "withdraw"],
+          enum: ["topup", "withdraw", "reversal"],
           required: true,
         },
         method: {

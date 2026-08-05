@@ -44,7 +44,7 @@ conseguir religar o webhook ao pedido certo depois.
 
 ```js
 // seu backend (Node.js, exemplo)
-const response = await fetch("https://api.pyxgate.com/v1/payments", {
+const response = await fetch("https://pyxgate-api.onrender.com/v1/payments", {
   method: "POST",
   headers: {
     Authorization: `Bearer ${process.env.PYX_SECRET_KEY}`,

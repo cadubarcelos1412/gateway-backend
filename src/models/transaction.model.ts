@@ -23,7 +23,14 @@ export interface ITransaction extends Document {
   retention: number;
   type: "deposit" | "withdraw";
   method: "pix" | "credit_card" | "boleto";
-  status: "pending" | "approved" | "failed";
+  status: "pending" | "approved" | "failed" | "refunded";
+  /** Marcado quando o ledger/wallet já foram revertidos (falha pós-reserva ou estorno) — evita reversão duplicada. */
+  reversedAt?: Date;
+  refund?: {
+    reason?: string;
+    refundedAt: Date;
+    refundedBy?: Types.ObjectId;
+  };
   /** "test" para transações criadas com uma chave de API sk_test_...; "live" para dinheiro real. */
   mode: "test" | "live";
   description?: string;
@@ -85,9 +92,16 @@ const TransactionSchema = new Schema<ITransaction>(
 
     status: {
       type: String,
-      enum: ["pending", "approved", "failed"],
+      enum: ["pending", "approved", "failed", "refunded"],
       default: "pending",
       index: true,
+    },
+
+    reversedAt: { type: Date },
+    refund: {
+      reason: { type: String, trim: true, maxlength: 500 },
+      refundedAt: { type: Date },
+      refundedBy: { type: Schema.Types.ObjectId, ref: "User" },
     },
 
     mode: {

@@ -6,6 +6,7 @@ const STATUS_MAP: Record<ITransaction["status"], string> = {
   pending: "pending",
   approved: "paid",
   failed: "failed",
+  refunded: "refunded",
 };
 
 const METHOD_MAP: Record<ITransaction["method"], string> = {
@@ -48,6 +49,12 @@ export function toPublicPayment(tx: ITransaction) {
         }
       : undefined,
     created: Math.floor(new Date(tx.createdAt).getTime() / 1000),
+    refund: tx.refund
+      ? {
+          reason: tx.refund.reason,
+          refunded_at: Math.floor(new Date(tx.refund.refundedAt).getTime() / 1000),
+        }
+      : undefined,
   };
 }
 

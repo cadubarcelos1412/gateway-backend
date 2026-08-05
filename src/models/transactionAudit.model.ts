@@ -9,7 +9,7 @@ export type RiskFlag =
   | "FOREIGN_IP"
   | "BUYER_EQUALS_SELLER";
 
-export type AuditStatus = "pending" | "approved" | "failed" | "blocked";
+export type AuditStatus = "pending" | "approved" | "failed" | "blocked" | "refunded";
 export type AuditMethod = "pix" | "credit_card" | "boleto";
 
 export interface ITransactionAudit extends Document {
@@ -50,7 +50,7 @@ const TransactionAuditSchema = new Schema<ITransactionAudit>(
 
     amount: { type: Number, required: true },
     method: { type: String, enum: ["pix", "credit_card", "boleto"], required: true },
-    status: { type: String, enum: ["pending", "approved", "failed", "blocked"], required: true },
+    status: { type: String, enum: ["pending", "approved", "failed", "blocked", "refunded"], required: true },
     description: { type: String },
 
     kycStatus: { type: String, required: true },

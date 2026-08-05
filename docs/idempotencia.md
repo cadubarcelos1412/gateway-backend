@@ -9,7 +9,7 @@ Envie um valor único por operação (ex.: o ID do pedido no seu sistema) no
 header `Idempotency-Key` em requisições `POST`:
 
 ```bash
-curl -X POST https://api.pyxgate.com/v1/payments \
+curl -X POST https://pyxgate-api.onrender.com/v1/payments \
   -H "Authorization: Bearer sk_test_..." \
   -H "Idempotency-Key: pedido-8f3a21" \
   -H "Content-Type: application/json" \

@@ -1,10 +1,12 @@
 import { Request, Response } from "express";
+import mongoose from "mongoose";
 import { Transaction } from "../models/transaction.model";
 import { ZendryWebhookEvent } from "../models/zendryWebhookEvent.model";
 import { Seller } from "../models/seller.model";
 import { verifyWebhookSecret, parseZendryWebhook } from "../lib/zendry/webhook";
 import { dispatchWebhookEvent } from "../services/webhook.service";
 import { toPublicPayment } from "../utils/publicPayment";
+import { reverseTransactionLedgerAndWallet } from "../services/ledger/reversal.service";
 
 /**
  * POST /api/transactions/webhook/zendry?key=SEU_ZENDRY_WEBHOOK_SECRET
@@ -15,11 +17,12 @@ import { toPublicPayment } from "../utils/publicPayment";
  * ZENDRY-MIGRATION.md, seção Webhooks, sobre a divergência com o mecanismo
  * oficial (header Authorization) e por que esse projeto usa o da query.
  *
- * ⚠️ Limitação conhecida (herdada do webhook genérico já existente pra
- * Pagar.me): quando a transação vira "failed", este endpoint só atualiza
- * `transaction.status` — não estorna os lançamentos de ledger nem a entrada
- * de wallet feitos no momento da CRIAÇÃO da transação. Esse gap já existe
- * hoje pro Pagar.me e não é corrigido aqui.
+ * Quando a transação vira "failed" (recusada/cancelada depois da reserva
+ * otimista feita na criação), reverte os lançamentos de ledger e a reserva
+ * de wallet dentro da mesma transação Mongo que atualiza o status — ver
+ * services/ledger/reversal.service.ts. Esse gap (reserva sem reversão em
+ * caso de falha) existia igual pro webhook genérico da Pagar.me; ainda não
+ * foi corrigido lá.
  */
 export const zendryWebhook = async (req: Request, res: Response): Promise<void> => {
   const providedKey = typeof req.query.key === "string" ? req.query.key : null;
@@ -67,9 +70,21 @@ export const zendryWebhook = async (req: Request, res: Response): Promise<void> 
         (event.status === "rejected" || event.status === "cancelled") &&
         transaction.status === "pending"
       ) {
-        transaction.status = "failed";
         newlyFailed = true;
-        await transaction.save();
+        const session = await mongoose.startSession();
+        session.startTransaction();
+        try {
+          transaction.status = "failed";
+          await transaction.save({ session });
+          await reverseTransactionLedgerAndWallet(transaction, session, `zendry webhook: ${event.status}`);
+          await session.commitTransaction();
+        } catch (reversalErr) {
+          await session.abortTransaction();
+          console.error(`❌ Erro ao reverter ledger/wallet da transação ${transaction._id}:`, reversalErr);
+          throw reversalErr;
+        } finally {
+          session.endSession();
+        }
       }
       // status "pending" — nada a fazer.
 

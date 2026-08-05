@@ -8,7 +8,7 @@ export interface AuditData {
   userId: Types.ObjectId;
   amount: number;
   method: "pix" | "credit_card" | "boleto";
-  status: "pending" | "approved" | "failed" | "blocked";
+  status: "pending" | "approved" | "failed" | "blocked" | "refunded";
   kycStatus: string;
   ipAddress?: string;
   userAgent?: string;

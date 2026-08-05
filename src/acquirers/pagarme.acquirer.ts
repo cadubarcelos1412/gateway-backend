@@ -53,4 +53,24 @@ export class PagarmeAcquirer implements IAcquirer {
       raw: tx,
     };
   }
+
+  /**
+   * Estorno total via SDK oficial da Pagar.me (`client.transactions.refund`,
+   * POST /transactions/:id/refund — confirmado lendo node_modules/pagarme,
+   * não documentação externa). Só estorno TOTAL: a Pagar.me aceita estorno
+   * parcial via campo de valor, mas não implementamos aqui por não termos
+   * confirmado o nome exato do campo na versão da API em uso — evita
+   * inventar um contrato não verificado.
+   */
+  async refund(externalId: string): Promise<any> {
+    if (!process.env.PAGARME_SECRET_KEY) {
+      throw new Error("❌ PAGARME_SECRET_KEY não configurada no ambiente.");
+    }
+
+    const client = await pagarme.client.connect({
+      api_key: process.env.PAGARME_SECRET_KEY,
+    });
+
+    return client.transactions.refund({ id: externalId });
+  }
 }

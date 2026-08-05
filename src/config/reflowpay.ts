@@ -7,8 +7,10 @@ import { Types } from "mongoose";
 
 const REFLOW_TOKEN = process.env.REFLOW_TOKEN as string;
 
-const mapStatusToLegacy = (status: "pending" | "approved" | "failed"): "pending" | "completed" | "failed" => {
-  return status === "approved" ? "completed" : status;
+const mapStatusToLegacy = (status: "pending" | "approved" | "failed" | "refunded"): "pending" | "completed" | "failed" => {
+  if (status === "approved") return "completed";
+  if (status === "refunded") return "failed";
+  return status;
 };
 
 /* ------------------ 🪙 Criar transação PIX ------------------ */

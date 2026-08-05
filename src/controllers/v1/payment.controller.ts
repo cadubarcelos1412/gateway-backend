@@ -115,7 +115,7 @@ export const listPayments = async (req: ApiKeyRequest, res: Response): Promise<v
   };
 
   if (typeof req.query.status === "string") {
-    const publicToInternal: Record<string, string> = { pending: "pending", paid: "approved", failed: "failed" };
+    const publicToInternal: Record<string, string> = { pending: "pending", paid: "approved", failed: "failed", refunded: "refunded" };
     const internalStatus = publicToInternal[req.query.status];
     if (internalStatus) filter.status = internalStatus;
   }

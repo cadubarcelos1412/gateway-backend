@@ -41,6 +41,7 @@
       <a href="#consultar-pagamento"><span class="method get">GET</span> Consultar pagamento</a>
       <a href="#listar-pagamentos"><span class="method get">GET</span> Listar pagamentos</a>
       <a href="#modo-teste"><span class="method post">POST</span> Simular (modo teste)</a>
+      <a href="#card-authentications"><span class="method get">GET</span> Token 3DS (cartão)</a>
       <a href="#estornos"><span class="method post">POST</span> Estornos</a>
       <a href="#webhook-endpoints"><span class="method post">POST</span> Webhook endpoints</a>
     </div>
@@ -79,14 +80,14 @@
       <table>
         <thead><tr><th>Ambiente</th><th>Base URL</th></tr></thead>
         <tbody>
-          <tr><td>Desenvolvimento local</td><td><code>http://localhost:3000/v1</code></td></tr>
-          <tr><td>Produção</td><td><code>https://api.pyxgate.com/v1</code> <span style="color:var(--slate)">(domínio ilustrativo — ainda não implantado)</span></td></tr>
+          <tr><td>Produção</td><td><code>https://pyxgate-api.onrender.com/v1</code></td></tr>
         </tbody>
       </table>
+      <p style="color:var(--slate); font-size: 13px;">Domínio próprio (<code>api.pyxgate.com</code>) ainda não configurado — use a URL acima até lá. <code>http://localhost:3000/v1</code> só existe se você estiver rodando o backend localmente pra contribuir com o código da PYX Gate; não é um ambiente de teste pra integradores.</p>
 
-      <h3>Modo teste vs. produção</h3>
-      <p>Cada chave de API tem um modo. Uma chave <code>sk_test_...</code> roda inteiramente em <strong>modo teste</strong>: nunca chama uma adquirente real, nunca move dinheiro, nunca aparece nos relatórios financeiros reais. A confirmação de um pagamento em modo teste é manual, via os endpoints de simulação. Uma chave <code>sk_live_...</code> processa pagamentos reais.</p>
-      <p>Pagamentos, listagens e consultas são sempre escopados ao modo da chave usada — uma chave de teste nunca enxerga pagamentos reais, e vice-versa.</p>
+      <h3>Modo teste vs. produção — não existe sandbox separado</h3>
+      <p>Cada chave de API tem um modo, mas a URL é <strong>a mesma</strong> nos dois casos — não há um domínio de sandbox à parte. Uma chave <code>sk_test_...</code> roda inteiramente em <strong>modo teste</strong> na própria API de produção: nunca chama uma adquirente real, nunca move dinheiro, nunca aparece nos relatórios financeiros reais. A confirmação de um pagamento em modo teste é manual, via os endpoints de simulação. Uma chave <code>sk_live_...</code>, na mesma URL, processa pagamentos reais.</p>
+      <p>Pagamentos, listagens e consultas são sempre escopados ao modo da chave usada — uma chave de teste nunca enxerga pagamentos reais, e vice-versa. Pra testar sua integração de ponta a ponta, gere uma chave <code>sk_test_...</code> no dashboard e siga o <a href="#modo-teste">fluxo de simulação</a>.</p>
 
       <div class="callout">
         <div class="callout-title">Convenção de valores</div>
@@ -118,7 +119,7 @@
           <button class="active" data-tab="curl">cURL</button>
         </div>
         <pre data-tab="curl"><span class="tok-comment"># requisições sem chave, com chave inválida ou revogada recebem 401</span>
-curl https://api.pyxgate.com/v1/account \
+curl https://pyxgate-api.onrender.com/v1/account \
   -H <span class="tok-str">"Authorization: Bearer sk_test_51H8x..."</span></pre>
         <button class="copy-btn">Copiar</button>
       </div>
@@ -200,9 +201,9 @@ curl https://api.pyxgate.com/v1/account \
           <button class="active" data-tab="curl">cURL</button>
           <button data-tab="js">Node.js</button>
         </div>
-        <pre data-tab="curl">curl https://api.pyxgate.com/v1/account \
+        <pre data-tab="curl">curl https://pyxgate-api.onrender.com/v1/account \
   -H <span class="tok-str">"Authorization: Bearer sk_test_..."</span></pre>
-        <pre data-tab="js" hidden><span class="tok-key">const</span> res = <span class="tok-key">await</span> fetch(<span class="tok-str">"https://api.pyxgate.com/v1/account"</span>, {
+        <pre data-tab="js" hidden><span class="tok-key">const</span> res = <span class="tok-key">await</span> fetch(<span class="tok-str">"https://pyxgate-api.onrender.com/v1/account"</span>, {
   headers: { Authorization: <span class="tok-str">`Bearer ${process.env.PYX_SECRET_KEY}`</span> },
 });
 <span class="tok-key">const</span> account = <span class="tok-key">await</span> res.json();</pre>
@@ -244,7 +245,7 @@ curl https://api.pyxgate.com/v1/account \
           <button class="active" data-tab="curl">cURL</button>
           <button data-tab="js">Node.js</button>
         </div>
-        <pre data-tab="curl">curl -X POST https://api.pyxgate.com/v1/payments \
+        <pre data-tab="curl">curl -X POST https://pyxgate-api.onrender.com/v1/payments \
   -H <span class="tok-str">"Authorization: Bearer sk_test_..."</span> \
   -H <span class="tok-str">"Idempotency-Key: pedido-1001"</span> \
   -H <span class="tok-str">"Content-Type: application/json"</span> \
@@ -258,7 +259,7 @@ curl https://api.pyxgate.com/v1/account \
     },
     "metadata": { "order_id": "1001" }
   }'</span></pre>
-        <pre data-tab="js" hidden><span class="tok-key">const</span> res = <span class="tok-key">await</span> fetch(<span class="tok-str">"https://api.pyxgate.com/v1/payments"</span>, {
+        <pre data-tab="js" hidden><span class="tok-key">const</span> res = <span class="tok-key">await</span> fetch(<span class="tok-str">"https://pyxgate-api.onrender.com/v1/payments"</span>, {
   method: <span class="tok-str">"POST"</span>,
   headers: {
     Authorization: <span class="tok-str">`Bearer ${process.env.PYX_SECRET_KEY}`</span>,
@@ -297,7 +298,7 @@ curl https://api.pyxgate.com/v1/account \
       <p>Consulta um pagamento pelo id público (<code>pay_...</code>), escopado à conta e ao modo (test/live) da chave usada.</p>
       <div class="code-block">
         <div class="code-tabs"><button class="active" data-tab="curl">cURL</button></div>
-        <pre data-tab="curl">curl https://api.pyxgate.com/v1/payments/pay_6a714eb5b03f4c85d1b52f39 \
+        <pre data-tab="curl">curl https://pyxgate-api.onrender.com/v1/payments/pay_6a714eb5b03f4c85d1b52f39 \
   -H <span class="tok-str">"Authorization: Bearer sk_test_..."</span></pre>
         <button class="copy-btn">Copiar</button>
       </div>
@@ -318,7 +319,7 @@ curl https://api.pyxgate.com/v1/account \
       </table>
       <div class="code-block">
         <div class="code-tabs"><button class="active" data-tab="curl">cURL</button></div>
-        <pre data-tab="curl">curl <span class="tok-str">"https://api.pyxgate.com/v1/payments?status=paid&limit=10"</span> \
+        <pre data-tab="curl">curl <span class="tok-str">"https://pyxgate-api.onrender.com/v1/payments?status=paid&limit=10"</span> \
   -H <span class="tok-str">"Authorization: Bearer sk_test_..."</span></pre>
         <button class="copy-btn">Copiar</button>
       </div>
@@ -331,19 +332,78 @@ curl https://api.pyxgate.com/v1/account \
       <p>Simula a aprovação ou falha de um pagamento. Só funciona com <code>mode: "test"</code> e <code>status: "pending"</code>, autenticado com uma chave <code>sk_test_...</code>. Dispara <code>payment.paid</code> ou <code>payment.failed</code> para os webhooks cadastrados.</p>
       <div class="code-block">
         <div class="code-tabs"><button class="active" data-tab="curl">cURL</button></div>
-        <pre data-tab="curl">curl -X POST https://api.pyxgate.com/v1/test/payments/pay_6a714eb5b03f4c85d1b52f39/pay \
+        <pre data-tab="curl">curl -X POST https://pyxgate-api.onrender.com/v1/test/payments/pay_6a714eb5b03f4c85d1b52f39/pay \
   -H <span class="tok-str">"Authorization: Bearer sk_test_..."</span></pre>
         <button class="copy-btn">Copiar</button>
       </div>
       <p style="color:var(--slate); font-size: 13px;">Em produção, isso acontece sozinho quando o comprador paga de verdade — não existe endpoint de simulação em modo live.</p>
     </section>
 
+    <!-- ===================== CARD AUTHENTICATIONS (3DS) ===================== -->
+    <section class="doc-section reveal" id="card-authentications">
+      <div class="endpoint"><span class="method get">GET</span><span class="path">/v1/card_authentications/token</span></div>
+      <p>Devolve o token pro desafio 3DS no navegador do comprador. Chame do seu backend (nunca do navegador) e repasse pro seu frontend — ver <a href="#guia-cartao">guia de cartão</a> pro fluxo completo. Só funciona para sellers com adquirente Zendry.</p>
+
+      <div class="callout warn">
+        <div class="callout-title">Esse token fica exposto no navegador do seu comprador</div>
+        <p>É o mesmo Bearer que autentica toda a comunicação da PYX Gate com a Zendry, não escopado só pra 3DS — é assim que o SDK oficial da Zendry funciona. Decisão consciente, aceita pelo time da PYX Gate.</p>
+      </div>
+
+      <div class="code-block">
+        <div class="code-tabs"><button class="active" data-tab="curl">cURL</button></div>
+        <pre data-tab="curl">curl https://pyxgate-api.onrender.com/v1/card_authentications/token \
+  -H <span class="tok-str">"Authorization: Bearer sk_live_..."</span></pre>
+        <button class="copy-btn">Copiar</button>
+      </div>
+
+      <div class="code-block">
+        <div class="code-tabs"><button class="active" data-tab="json">Resposta 200</button></div>
+        <pre data-tab="json">{ <span class="tok-key">"token"</span>: <span class="tok-str">"eyJhbGciOiJSUzI1NiIs..."</span> }</pre>
+        <button class="copy-btn">Copiar</button>
+      </div>
+    </section>
+
     <!-- ===================== ESTORNOS ===================== -->
     <section class="doc-section reveal" id="estornos">
       <div class="endpoint"><span class="method post">POST</span><span class="path">/v1/refunds</span></div>
+      <p>Estorna um pagamento com <code>status: "paid"</code>. Reverte o ledger de dupla-entrada e o saldo do seller só depois de confirmar o estorno na adquirente — nunca antes. Só estorno total (sem valor parcial) por enquanto.</p>
+
       <div class="callout warn">
-        <div class="callout-title">Ainda não implementado</div>
-        <p>Sempre retorna <code>501 not_implemented</code>. Reverter ledger de dupla-entrada e saldo retido não é trivial — preferimos documentar isso claramente em vez de simular um estorno que não acontece de fato.</p>
+        <div class="callout-title">Zendry: endpoint de estorno ainda não confirmado</div>
+        <p>Funciona de verdade para sellers com adquirente <code>pagarme</code>. Para <code>zendry</code>, o endpoint de estorno/cancelamento nunca foi confirmado com o suporte deles — a chamada falha com <code>acquirer_refund_unsupported</code> ou <code>acquirer_refund_failed</code> em vez de fingir que o estorno aconteceu.</p>
+      </div>
+
+      <table>
+        <thead><tr><th>Campo</th><th>Tipo</th><th>Descrição</th></tr></thead>
+        <tbody>
+          <tr><td><code>payment_id</code></td><td>string</td><td>Obrigatório. Id público do pagamento (<code>pay_...</code>).</td></tr>
+          <tr><td><code>reason</code></td><td>string</td><td>Opcional. Até 500 caracteres.</td></tr>
+        </tbody>
+      </table>
+
+      <div class="code-block">
+        <div class="code-tabs"><button class="active" data-tab="curl">cURL</button></div>
+        <pre data-tab="curl">curl -X POST https://pyxgate-api.onrender.com/v1/refunds \
+  -H <span class="tok-str">"Authorization: Bearer sk_test_..."</span> \
+  -H <span class="tok-str">"Content-Type: application/json"</span> \
+  -d <span class="tok-str">'{
+    "payment_id": "pay_6a714eb5b03f4c85d1b52f39",
+    "reason": "Cliente desistiu da compra"
+  }'</span></pre>
+        <button class="copy-btn">Copiar</button>
+      </div>
+
+      <div class="code-block">
+        <div class="code-tabs"><button class="active" data-tab="json">Resposta 200</button></div>
+        <pre data-tab="json">{
+  <span class="tok-key">"id"</span>: <span class="tok-str">"pay_6a714eb5b03f4c85d1b52f39"</span>,
+  <span class="tok-key">"status"</span>: <span class="tok-str">"refunded"</span>,
+  <span class="tok-key">"refund"</span>: {
+    <span class="tok-key">"reason"</span>: <span class="tok-str">"Cliente desistiu da compra"</span>,
+    <span class="tok-key">"refunded_at"</span>: <span class="tok-num">1735776000</span>
+  }
+}</pre>
+        <button class="copy-btn">Copiar</button>
       </div>
     </section>
 
@@ -356,7 +416,7 @@ curl https://api.pyxgate.com/v1/account \
       <p>CRUD dos endpoints que recebem eventos. Também disponível pelo dashboard (Desenvolvedores).</p>
       <div class="code-block">
         <div class="code-tabs"><button class="active" data-tab="curl">cURL</button></div>
-        <pre data-tab="curl">curl -X POST https://api.pyxgate.com/v1/webhook_endpoints \
+        <pre data-tab="curl">curl -X POST https://pyxgate-api.onrender.com/v1/webhook_endpoints \
   -H <span class="tok-str">"Authorization: Bearer sk_test_..."</span> \
   -H <span class="tok-str">"Content-Type: application/json"</span> \
   -d <span class="tok-str">'{"url": "https://seusite.com/webhooks/pyxgate", "events": ["payment.paid", "payment.failed"]}'</span></pre>
@@ -378,7 +438,7 @@ curl https://api.pyxgate.com/v1/account \
           <tr><td><code>payment.paid</code></td><td>Um pagamento foi confirmado.</td></tr>
           <tr><td><code>payment.failed</code></td><td>Um pagamento falhou ou foi rejeitado.</td></tr>
           <tr><td><code>payment.expired</code></td><td>Reservado — ainda não disparado (sem expiração automática de cobrança hoje).</td></tr>
-          <tr><td><code>refund.succeeded</code></td><td>Reservado — ainda não disparado (estornos não implementados).</td></tr>
+          <tr><td><code>refund.succeeded</code></td><td>Um pagamento foi estornado com sucesso.</td></tr>
         </tbody>
       </table>
 
@@ -458,12 +518,65 @@ curl https://api.pyxgate.com/v1/account \
       <h2>Guia: Cartão</h2>
       <div class="callout warn">
         <div class="callout-title">Leia antes de integrar</div>
-        <p>A integração de cartão <strong>não está pronta para uso por terceiros ainda</strong>. Duas coisas a saber:</p>
         <p><strong>1. PCI:</strong> número, validade e CVV trafegam direto no corpo da sua requisição para <code>POST /v1/payments</code> — isso coloca você no escopo de responsabilidade PCI-DSS equivalente a manipular dados de cartão diretamente. Não há tokenização client-side hoje.</p>
-        <p><strong>2. 3DS obrigatório, fluxo incompleto:</strong> a Zendry recusa cartão sem <code>threeds_data</code>, gerado por um desafio 3DS no navegador do comprador. Hoje, nem o nosso próprio checkout interno termina esse passo — não temos um exemplo funcional para dar.</p>
+        <p><strong>2. Token 3DS exposto no navegador:</strong> o fluxo abaixo expõe no navegador do seu comprador o mesmo token que autentica toda a comunicação da PYX Gate com a Zendry (não escopado só pra 3DS) — é assim que o SDK oficial deles funciona.</p>
+        <p>Só funciona para sellers com adquirente <strong>Zendry</strong>.</p>
       </div>
-      <p>Em <strong>modo teste</strong>, <code>threeds_data</code> ainda é exigido pela validação mas não é verificado de verdade — envie qualquer objeto não vazio, a cobrança nasce <code>pending</code> e você confirma via simulação, igual ao Pix.</p>
-      <p><strong>Recomendação:</strong> use Pix por enquanto, ou fale com o time da PYX Gate para alinhar o roadmap de cartão.</p>
+
+      <h3>1. Pegue o token (seu backend)</h3>
+      <div class="code-block">
+        <div class="code-tabs"><button class="active" data-tab="curl">cURL</button></div>
+        <pre data-tab="curl">curl https://pyxgate-api.onrender.com/v1/card_authentications/token \
+  -H <span class="tok-str">"Authorization: Bearer sk_live_..."</span></pre>
+        <button class="copy-btn">Copiar</button>
+      </div>
+
+      <h3>2. Rode o desafio 3DS (navegador do comprador)</h3>
+      <p>Carregue <code>https://cdn.zendry.com/v1/zendry-sdk-threeds.min.js</code> e chame:</p>
+      <div class="code-block">
+        <div class="code-tabs"><button class="active" data-tab="js">JavaScript</button></div>
+        <pre data-tab="js"><span class="tok-key">ZendrySDKThreeds</span>.init_threeds({
+  token: tokenDoServidor, <span class="tok-comment">// obtido no passo 1</span>
+  amount: <span class="tok-num">1990</span>, <span class="tok-comment">// centavos, mesmo valor da cobrança</span>
+  payment_form: {
+    pan: <span class="tok-str">"4242424242424242"</span>,
+    expiry_month: <span class="tok-str">"12"</span>,
+    expiry_year: <span class="tok-str">"29"</span>, <span class="tok-comment">// 2 dígitos! "2029" é rejeitado</span>
+    card_holder_name: <span class="tok-str">"MARIA COMPRADORA"</span>,
+    account_type: <span class="tok-str">"CREDIT"</span>, <span class="tok-comment">// ou "DEBIT"</span>
+    network_preference: <span class="tok-str">"VISA"</span>, <span class="tok-comment">// VISA | MASTERCARD | AMEX | ELO | DINERS | CB</span>
+  },
+  onSuccess: (result) => { <span class="tok-comment">/* result.three_ds_data */</span> },
+  onFailure: (result) => { <span class="tok-comment">/* desafio recusado */</span> },
+  onError: (error) => { <span class="tok-comment">/* erro técnico */</span> },
+});</pre>
+        <button class="copy-btn">Copiar</button>
+      </div>
+      <p>O SDK cria a sessão 3DS e roda o desafio sozinho — não passa pelo backend da PYX Gate. <strong>Não cobra nada.</strong> <code>onSuccess</code> devolve <code>three_ds_data</code> com 7 dos 13 campos de <code>threeds_data</code>: <code>operation_session_id</code>, <code>xid</code>, <code>eci</code>, <code>cavv</code>, <code>secure_version</code>, <code>directory_server_transaction_id</code>, <code>three_ds_server_transaction_id</code>.</p>
+
+      <h3>3. Complete com fingerprint do navegador</h3>
+      <p>Os outros 6 campos não vêm do SDK — colete direto:</p>
+      <div class="code-block">
+        <div class="code-tabs"><button class="active" data-tab="js">JavaScript</button></div>
+        <pre data-tab="js"><span class="tok-key">const</span> threeds_data = {
+  ...result.three_ds_data,
+  ip_address: ipDoComprador, <span class="tok-comment">// obtenha no seu backend</span>
+  user_agent_browser_value: navigator.userAgent,
+  http_browser_language: navigator.language,
+  http_browser_screen_height: String(screen.height),
+  http_browser_screen_width: String(screen.width),
+  zip_code: cepDeCobranca,
+};</pre>
+        <button class="copy-btn">Copiar</button>
+      </div>
+
+      <h3>4. Cobre de verdade</h3>
+      <p>Envie <code>threeds_data</code> completo em <a href="#criar-pagamento"><code>POST /v1/payments</code></a> com <code>payment_method: "card"</code>.</p>
+
+      <div class="callout">
+        <div class="callout-title">Modo teste</div>
+        <p>Em <code>sk_test_...</code>, <code>threeds_data</code> ainda é exigido pela validação mas não é verificado de verdade — envie qualquer objeto não vazio. Isso testa o passo 4, não valida se os passos 1–3 do SEU fluxo estão corretos.</p>
+      </div>
     </section>
 
     <!-- ===================== GUIA CHECKOUT ===================== -->

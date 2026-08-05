@@ -330,7 +330,11 @@ export class TransactionService {
         const recipientWallet = await Wallet.findOne({ userId: recipientUserId }).session(session);
         if (!recipientWallet) continue;
 
-        recipientWallet.balance.unAvailable.push({ amount: allocation.amount, availableIn });
+        recipientWallet.balance.unAvailable.push({
+          amount: allocation.amount,
+          availableIn,
+          originTransactionId: tx._id as Types.ObjectId,
+        });
         recipientWallet.log.push({
           transactionId: tx._id as Types.ObjectId,
           type: "topup",
@@ -345,6 +349,7 @@ export class TransactionService {
     wallet.balance.unAvailable.push({
       amount: sellerShare - retentionAmount,
       availableIn,
+      originTransactionId: tx._id as Types.ObjectId,
     });
 
     wallet.log.push({

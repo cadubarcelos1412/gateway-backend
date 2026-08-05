@@ -31,6 +31,12 @@ export interface CreatePixResult {
 
 export type CardBrand = "VISA" | "MASTERCARD" | "ELO" | "AMEX";
 
+// Schema de payment_form pro SDK client-side ZendrySDKThreeds.init_threeds()
+// (roda no navegador do comprador — POST /v1/card_payments/threeds sai
+// direto do navegador pra Zendry, não passa pelo nosso backend) está
+// documentado em docs/guia-cartao.md, não aqui — nenhum código de backend
+// consome esse schema, ele só existe do lado do navegador (FRONT).
+
 // Dados devolvidos pelo SDK de 3DS (ZendrySDKThreeds.init_threeds, roda no
 // navegador do cliente) — obrigatórios em todo pagamento de cartão, a Zendry
 // recusa sem isso ("Threeds data is required", confirmado testando de verdade).

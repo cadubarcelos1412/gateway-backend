@@ -20,7 +20,7 @@ Authorization: Bearer sk_test_51H8x...
 ```
 
 ```bash
-curl https://api.pyxgate.com/v1/account \
+curl https://pyxgate-api.onrender.com/v1/account \
   -H "Authorization: Bearer sk_test_51H8x..."
 ```
 

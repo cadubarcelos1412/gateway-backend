@@ -1,51 +1,102 @@
 # Guia: Cartão
 
-## ⚠️ Leia isto antes de integrar cartão
+## Antes de integrar
 
-Diferente do Pix, a integração de cartão desta API **não está 100%
-pronta para uso por terceiros ainda**. Duas coisas que você precisa saber
-antes de investir tempo integrando:
+Cartão exige um desafio 3DS completo no navegador do comprador — não existe
+sandbox pra isso, e o fluxo passa pelo SDK client-side da própria Zendry.
+Duas coisas importantes:
 
 1. **Compliance PCI**: o número, validade e CVV do cartão trafegam
-   diretamente no corpo da sua requisição para `POST /v1/payments` — eles
-   passam pelo nosso backend antes de chegar na adquirente (Zendry). Isso
-   coloca **você** (quem envia os dados) no escopo de responsabilidade PCI-DSS
-   equivalente a manipular dados de cartão diretamente. Não há tokenização
-   client-side disponível hoje (foi uma decisão consciente do time, ver
-   `docs/ARQUITETURA.md`). Se sua operação exige reduzir esse escopo, cartão
-   não deve ser usado nesta API por enquanto.
+   diretamente no corpo de `POST /v1/payments` — passam pelo nosso backend
+   antes de chegar na adquirente (Zendry). Isso coloca **você** no escopo de
+   responsabilidade PCI-DSS equivalente a manipular dados de cartão
+   diretamente. Não há tokenização client-side disponível hoje.
+2. **O token de autenticação 3DS fica exposto no navegador do comprador**:
+   `GET /v1/card_authentications/token` devolve o mesmo Bearer token que
+   autentica toda a comunicação da PYX Gate com a Zendry (não é escopado só
+   pra 3DS). É assim que o SDK oficial da Zendry funciona — decisão
+   consciente, aceita pelo time da PYX Gate.
 
-2. **3DS é obrigatório e o fluxo de coleta ainda é interno**: a Zendry
-   recusa qualquer pagamento de cartão sem `threeds_data` (confirmado em
-   produção, erro 422 `"Threeds data is required"`). Esse dado é gerado por
-   um desafio 3DS que roda no **navegador do comprador**, via SDK da própria
-   Zendry (`ZendrySDKThreeds.init_threeds()`). Hoje, no nosso próprio
-   checkout interno, esse SDK é carregado mas **`init_threeds()` ainda não é
-   chamado** — ou seja, nem o fluxo interno está terminado, e não temos um
-   exemplo de código funcional e testado para te dar aqui. Documentar um
-   exemplo fictício seria enganoso.
+**Só funciona para sellers com adquirente `zendry`.**
 
-**Recomendação**: para pagamentos com cartão hoje, use Pix
-([guia-pix.md](./guia-pix.md)) ou fale com o time da PYX Gate para alinhar
-o roadmap de cartão antes de integrar.
+## Passo a passo
 
-## O que já funciona, tecnicamente
-
-Se você já tem `threeds_data` válido (por já ter implementado o desafio 3DS
-da Zendry por fora), o endpoint aceita:
+### 1. Pegue o token de autenticação (backend do integrador)
 
 ```bash
-curl -X POST http://localhost:3000/v1/payments \
-  -H "Authorization: Bearer sk_test_..." \
+curl https://pyxgate-api.onrender.com/v1/card_authentications/token \
+  -H "Authorization: Bearer sk_live_..."
+```
+
+```json
+{ "token": "eyJhbGciOiJSUzI1NiIs..." }
+```
+
+Chame isso do **seu servidor**, nunca do navegador — é aqui que a chave
+secreta é usada. Passe o `token` retornado pro seu frontend.
+
+### 2. Rode o desafio 3DS no navegador (frontend do integrador)
+
+Carregue o SDK da Zendry:
+
+```html
+<script src="https://cdn.zendry.com/v1/zendry-sdk-threeds.min.js"></script>
+```
+
+```js
+ZendrySDKThreeds.init_threeds({
+  token: tokenDoServidor, // obtido no passo 1
+  amount: 15000, // centavos — mesmo valor que você vai cobrar depois
+  payment_form: {
+    pan: "4242424242424242",
+    expiry_month: "12",
+    expiry_year: "29", // 2 dígitos! "2029" é rejeitado
+    card_holder_name: "MARIA COMPRADORA",
+    account_type: "CREDIT", // ou "DEBIT"
+    network_preference: "VISA", // "VISA" | "MASTERCARD" | "AMEX" | "ELO" | "DINERS" | "CB" — detecte pelo BIN do cartão
+  },
+  onSuccess: (result) => {
+    // result.three_ds_data = { operation_session_id, xid, eci, cavv,
+    //   secure_version, directory_server_transaction_id,
+    //   three_ds_server_transaction_id }
+  },
+  onFailure: (result) => { /* desafio recusado */ },
+  onError: (error) => { /* erro técnico */ },
+});
+```
+
+O SDK cria a sessão 3DS, roda o desafio visual (widget da Lyra, provedor por
+trás da Zendry) e devolve `three_ds_data` com 7 dos 13 campos que
+`threeds_data` exige. **O SDK não cobra nada nem move dinheiro** — só
+autentica o cartão.
+
+### 3. Complete `threeds_data` com fingerprint do navegador
+
+Os outros 6 campos exigidos por `POST /v1/payments` **não vêm do SDK** —
+colete direto do navegador:
+
+```js
+const threeds_data = {
+  ...result.three_ds_data,
+  ip_address: /* IP do comprador — obtenha no seu backend, não é confiável vindo do navegador */,
+  user_agent_browser_value: navigator.userAgent,
+  http_browser_language: navigator.language,
+  http_browser_screen_height: String(screen.height),
+  http_browser_screen_width: String(screen.width),
+  zip_code: /* CEP de cobrança do comprador */,
+};
+```
+
+### 4. Cobre de verdade
+
+```bash
+curl -X POST https://pyxgate-api.onrender.com/v1/payments \
+  -H "Authorization: Bearer sk_live_..." \
   -H "Content-Type: application/json" \
   -d '{
     "amount": 15000,
     "payment_method": "card",
-    "customer": {
-      "name": "Maria Compradora",
-      "email": "maria@example.com",
-      "document": "39053344705"
-    },
+    "customer": { "name": "Maria Compradora", "email": "maria@example.com", "document": "39053344705" },
     "card": {
       "number": "4242424242424242",
       "holder_name": "MARIA COMPRADORA",
@@ -57,19 +108,28 @@ curl -X POST http://localhost:3000/v1/payments \
   }'
 ```
 
-Em **modo teste** (`sk_test_...`), o campo `threeds_data` ainda é exigido
-pela validação do payload, mas seu conteúdo não é verificado de verdade
-(nenhuma chamada à Zendry acontece em modo teste) — envie qualquer objeto
-não vazio. A cobrança nasce `pending` e você a confirma via
-`POST /v1/test/payments/:id/pay`, igual ao fluxo Pix.
+## Modo teste
 
-Em **modo live**, o `threeds_data` precisa ser o resultado real do desafio
-3DS da Zendry — sem uma implementação funcional desse passo (ver aviso
-acima), a chamada será recusada pela adquirente.
+Em **modo teste** (`sk_test_...`), `threeds_data` ainda é exigido pela
+validação do payload, mas seu conteúdo não é verificado de verdade (nenhuma
+chamada à Zendry acontece em modo teste) — envie qualquer objeto não vazio.
+A cobrança nasce `pending` e você a confirma via
+`POST /v1/test/payments/:id/pay`, igual ao fluxo Pix. Isso quer dizer que
+você pode testar o passo 4 sem rodar o desafio 3DS de verdade — só não
+valida se o SEU fluxo de 3DS (passos 1–3) está correto.
 
-## Próximos passos (para o time PYX Gate, não para o integrador)
+## Referência: schema de `payment_form`
 
-Antes deste guia poder oferecer um exemplo de ponta a ponta:
+Confirmado por sondagem empírica contra produção (a Zendry não documenta
+isso publicamente) — ver `scripts/zendry/probe-threeds.mjs` no backend.
 
-1. Terminar `init_threeds()` no checkout interno e confirmar o shape real de `threeds_data`.
-2. Decidir se a API pública expõe esse mesmo padrão (SDK client-side rodando com credenciais da PYX Gate, não do integrador) ou se cartão precisa de uma abordagem diferente para terceiros.
+| Campo | Tipo | Observação |
+|---|---|---|
+| `pan` | string | Número completo do cartão |
+| `expiry_month` | string | `"01"`–`"12"` |
+| `expiry_year` | string | **2 dígitos** (`"29"`, não `"2029"`) |
+| `card_holder_name` | string | |
+| `account_type` | `"CREDIT"` \| `"DEBIT"` | Maiúsculo |
+| `network_preference` | `"VISA"` \| `"MASTERCARD"` \| `"AMEX"` \| `"ELO"` \| `"DINERS"` \| `"CB"` | Maiúsculo. `"HIPERCARD"` foi testado e rejeitado |
+
+CVV não entra em `payment_form` — só na cobrança final (passo 4).

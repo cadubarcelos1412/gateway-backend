@@ -7,6 +7,7 @@ import paymentsRoutes from "./payments.routes";
 import refundsRoutes from "./refunds.routes";
 import testPaymentsRoutes from "./testPayments.routes";
 import webhookEndpointsRoutes from "./webhookEndpoints.routes";
+import cardAuthenticationsRoutes from "./cardAuthentications.routes";
 
 const router = Router();
 
@@ -22,6 +23,7 @@ router.use("/payments", paymentsRoutes);
 router.use("/refunds", refundsRoutes);
 router.use("/test/payments", testPaymentsRoutes);
 router.use("/webhook_endpoints", webhookEndpointsRoutes);
+router.use("/card_authentications", cardAuthenticationsRoutes);
 
 router.use("*", (_req, res) => {
   res.status(404).json({

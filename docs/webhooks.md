@@ -7,7 +7,7 @@ seu site.
 ## Cadastrando um endpoint
 
 ```bash
-curl -X POST https://api.pyxgate.com/v1/webhook_endpoints \
+curl -X POST https://pyxgate-api.onrender.com/v1/webhook_endpoints \
   -H "Authorization: Bearer sk_test_..." \
   -H "Content-Type: application/json" \
   -d '{

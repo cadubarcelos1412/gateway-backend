@@ -7,9 +7,14 @@ diretamente no seu checkout ou e-commerce.
 ## Base URL
 
 ```
-http://localhost:3000/v1        # desenvolvimento local
-https://api.pyxgate.com/v1      # produção (domínio ilustrativo — ainda não implantado)
+https://pyxgate-api.onrender.com/v1
 ```
+
+Domínio próprio (`api.pyxgate.com`) ainda não configurado — use a URL acima.
+Não existe um ambiente de sandbox separado: chaves `sk_test_...` rodam em
+modo teste na mesma URL de produção (veja "Ambientes: test vs. live" abaixo).
+`http://localhost:3000/v1` só é relevante se você estiver rodando o backend
+localmente para contribuir com o código da PYX Gate.
 
 Toda a API pública vive sob o prefixo `/v1`, separado das rotas internas do
 painel (`/api/...`). O `/v1` é autenticado por **chave de API**, não pelo
@@ -51,11 +56,11 @@ vice-versa.
 | `GET /v1/payments` | Lista pagamentos, paginado |
 | `POST /v1/test/payments/:id/pay` \| `/fail` | Simula aprovação/falha em modo teste |
 | `POST /v1/webhook_endpoints` + CRUD | Cadastra endpoints para receber eventos |
-| `POST /v1/refunds` | Ainda não implementado (retorna `501`) |
+| `GET /v1/card_authentications/token` | Token pro desafio 3DS de cartão no navegador do comprador — ver [guia-cartao.md](./guia-cartao.md). Só sellers com adquirente `zendry` |
+| `POST /v1/refunds` | Estorna um pagamento pago. Funciona de verdade para sellers com adquirente `pagarme`; para `zendry`, ainda não (endpoint de estorno não confirmado com o suporte deles) |
 
-A especificação completa, navegável, está em [`/docs`](http://localhost:3000/docs)
-(Swagger UI, roda em ambiente de desenvolvimento) ou em
-[`openapi.yaml`](./openapi.yaml).
+A especificação completa está em [`openapi.yaml`](./openapi.yaml). A versão
+navegável, com exemplos, é a página [`/developers`](https://pyxgate.com/developers).
 
 ## Próximos passos
 
