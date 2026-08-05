@@ -68,7 +68,7 @@ export class RefundService {
     const seller = await Seller.findOne({ userId: transaction.userId });
     if (!seller) throw new RefundError("Vendedor não encontrado.", "seller_not_found", 404);
 
-    const acquirerKey = (seller as any).acquirer || "pagarme";
+    const acquirerKey = (seller as any).acquirer || "zendry";
     const acquirer = resolveAcquirer(acquirerKey);
 
     if (!acquirer.refund) {

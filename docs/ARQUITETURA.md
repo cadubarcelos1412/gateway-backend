@@ -90,7 +90,8 @@ parametrizada por `mode: "test" | "live"`. Dois pontos de entrada:
 Idêntico ao fluxo pré-existente: calcula taxa via `Seller.split.cashIn`,
 roda `RiskEngine` (flags de risco) e `RetentionEngine` (retenção
 configurável), resolve o adapter de adquirente
-(`src/acquirers/`, hoje `pagarme` ou `zendry`, via `Seller.acquirer`),
+(`src/acquirers/`, hoje só `zendry` — Pagar.me e ReflowPay removidos em
+2026-08-06, nenhum seller usava — via `Seller.acquirer`),
 cria a cobrança na adquirente de verdade, grava `Transaction` + ledger de
 dupla-entrada (`postLedgerEntries`) + `wallet.balance.unAvailable` +
 `TransactionAudit`.
@@ -121,7 +122,7 @@ entrega via `fetch` nativo, retenta em processo (não é uma fila persistente
 tentativas pendentes) com backoff `[0, 10s, 60s, 5min]`, 4 tentativas.
 
 Pontos de disparo: criação de transação (`payment.created`), mudança de
-status para aprovado/falho nos webhooks de adquirente (Zendry e Pagar.me)
+status para aprovado/falho no webhook da Zendry
 e nos endpoints de simulação de teste (`payment.paid`/`payment.failed`).
 `payment.expired` e `refund.succeeded` nunca disparam — não há mecanismo
 que produza esses eventos.
@@ -201,7 +202,7 @@ esquecidos:
 ## Pendente para produção
 
 - Deploy (fora de escopo desta iniciativa — ver `CLAUDE.md`: não usar Railway).
-- Credenciais de produção (Zendry/Pagar.me live, `SECRET_TOKEN` forte, etc.) — nunca commitadas, `.env.example` documenta as chaves esperadas.
+- Credenciais de produção (Zendry live, `SECRET_TOKEN` forte, etc.) — nunca commitadas, `.env.example` documenta as chaves esperadas.
 - Domínio real da API pública (hoje `localhost:3000`, spec/`openapi.yaml` usa um domínio ilustrativo).
 - Página de dashboard para gerenciar webhook endpoints (backend pronto, UI não construída).
 - Decisão e implementação de tokenização de cartão, se o time decidir reduzir o escopo PCI SAQ D no futuro.

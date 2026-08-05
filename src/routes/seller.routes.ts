@@ -76,7 +76,7 @@ router.patch("/:id/toggle-status", toggleSellerStatus);
 
 /**
  * @route   PATCH /api/sellers/:id/acquirer
- * @desc    Definir qual adquirente (pagarme/zendry/...) processa as transações do seller – Apenas master
+ * @desc    Definir qual adquirente (zendry/...) processa as transações do seller – Apenas master
  * @access  Master
  */
 router.patch("/:id/acquirer", updateSellerAcquirer);

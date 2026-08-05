@@ -11,6 +11,7 @@ import routes from "./routes";
 import cashoutRoutes from "./routes/cashout.routes";
 import v1Routes from "./routes/v1";
 import docsRoutes from "./routes/docs.routes";
+import { reconcilePendingZendryPix } from "./services/zendryReconciliation.service";
 
 dotenv.config();
 const app = express();
@@ -56,7 +57,29 @@ app.use(invalidJsonHandler);
 /* 🗄️ Conexão com o MongoDB                                                 */
 /* -------------------------------------------------------------------------- */
 connectDB()
-  .then(() => console.log("📦 Banco de dados conectado com sucesso!"))
+  .then(() => {
+    console.log("📦 Banco de dados conectado com sucesso!");
+
+    // 🔁 Rede de segurança: webhook da Zendry não confirmado como chegando
+    // nesta conta (ver zendryWebhook.controller.ts) — reconcilia Pix
+    // "pending" há mais de alguns minutos consultando a Zendry direto.
+    // A cada 10min; primeira rodada logo no boot, com atraso pra não brigar
+    // com o próprio startup do processo.
+    const runReconciliation = () => {
+      reconcilePendingZendryPix()
+        .then((r) => {
+          if (r.updated > 0 || r.errors.length > 0) {
+            console.log(`🔁 Reconciliação Zendry Pix: ${r.checked} verificadas, ${r.updated} atualizadas, ${r.errors.length} erros.`);
+          }
+        })
+        .catch((err) => console.error("❌ Erro na reconciliação periódica de Pix:", err));
+    };
+    const TEN_MINUTES = 10 * 60 * 1000;
+    setTimeout(() => {
+      runReconciliation();
+      setInterval(runReconciliation, TEN_MINUTES);
+    }, 30_000);
+  })
   .catch((err) => {
     console.error("❌ Erro ao conectar ao banco:", err);
     process.exit(1);

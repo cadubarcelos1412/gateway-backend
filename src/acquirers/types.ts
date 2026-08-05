@@ -7,7 +7,7 @@ export type PaymentMethod = "pix" | "credit_card" | "boleto";
  * Nome lógico da adquirente.
  * Adicione aqui quando criar novos adaptadores (ex: "getnet", "cielo").
  */
-export type AcquirerName = "pagarme" | "zendry";
+export type AcquirerName = "zendry";
 
 /**
  * Payload mínimo para criar uma transação em qualquer adquirente

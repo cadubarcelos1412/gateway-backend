@@ -6,6 +6,7 @@ import { createToken, decodeToken } from "../config/auth";
 import { ACQUIRER_KEYS } from "../acquirers";
 import { getOrCreateDefaultFeeConfig, SystemFeeConfig } from "../models/systemFeeConfig.model";
 import { SplitRule } from "../models/splitRule.model";
+import { reconcilePendingZendryPix } from "../services/zendryReconciliation.service";
 
 /* 🔑 Utilitário — pegar usuário autenticado pelo token e exigir role master */
 const requireMasterUser = async (req: Request, res: Response) => {
@@ -202,13 +203,6 @@ export const listAcquirers = async (_req: Request, res: Response): Promise<void>
       missingEnv: string[];
     }> = [
       {
-        key: "pagarme",
-        name: "Pagar.me",
-        implemented: ACQUIRER_KEYS.includes("pagarme" as any),
-        configured: Boolean(process.env.PAGARME_SECRET_KEY),
-        missingEnv: process.env.PAGARME_SECRET_KEY ? [] : ["PAGARME_SECRET_KEY"],
-      },
-      {
         key: "zendry",
         name: "Zendry",
         implemented: ACQUIRER_KEYS.includes("zendry" as any),
@@ -217,13 +211,6 @@ export const listAcquirers = async (_req: Request, res: Response): Promise<void>
           !process.env.ZENDRY_CLIENT_ID ? "ZENDRY_CLIENT_ID" : null,
           !process.env.ZENDRY_CLIENT_SECRET ? "ZENDRY_CLIENT_SECRET" : null,
         ].filter((v): v is string => Boolean(v)),
-      },
-      {
-        key: "reflowpay",
-        name: "ReflowPay",
-        implemented: false,
-        configured: Boolean(process.env.REFLOW_TOKEN),
-        missingEnv: process.env.REFLOW_TOKEN ? [] : ["REFLOW_TOKEN"],
       },
     ];
 
@@ -313,5 +300,25 @@ export const listAllSplitRules = async (req: Request, res: Response): Promise<vo
   } catch (error) {
     console.error("❌ Erro em listAllSplitRules:", error);
     res.status(500).json({ status: false, msg: "Erro interno ao listar parcerias." });
+  }
+};
+
+/**
+ * 🔁 POST /api/master/reconcile-zendry-pix
+ * Rede de segurança pro problema de webhook da Zendry nunca chegando (ver
+ * zendryWebhook.controller.ts) — consulta a Zendry direto pelas transações
+ * Pix "pending" há mais de alguns minutos e aplica o status real. Também
+ * roda sozinho a cada 10min (ver server.ts), isso aqui é pra forçar na hora.
+ */
+export const reconcileZendryPix = async (req: Request, res: Response): Promise<void> => {
+  const user = await requireMasterUser(req, res);
+  if (!user) return;
+
+  try {
+    const result = await reconcilePendingZendryPix();
+    res.status(200).json({ status: true, ...result });
+  } catch (error) {
+    console.error("❌ Erro em reconcileZendryPix:", error);
+    res.status(500).json({ status: false, msg: "Erro interno ao reconciliar." });
   }
 };

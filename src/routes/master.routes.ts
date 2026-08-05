@@ -9,6 +9,7 @@ import {
   getDefaultFees,
   updateDefaultFees,
   listAllSplitRules,
+  reconcileZendryPix,
 } from "../controllers/master.controller";
 import { cacheMiddleware } from "../middleware/cache";
 
@@ -63,5 +64,13 @@ router.put("/fees/default", updateDefaultFees);
  * Visão de supervisão — todas as parcerias de split da plataforma.
  */
 router.get("/split-rules", listAllSplitRules);
+
+/**
+ * 🔁 POST /api/master/reconcile-zendry-pix
+ * Força a reconciliação de Pix Zendry pendentes há mais de alguns minutos
+ * (rede de segurança pro webhook que não chega — ver
+ * zendryReconciliation.service.ts). Roda sozinho a cada 10min também.
+ */
+router.post("/reconcile-zendry-pix", reconcileZendryPix);
 
 export default router;

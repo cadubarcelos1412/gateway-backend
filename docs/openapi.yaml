@@ -30,7 +30,7 @@ tags:
   - name: Card Authentication
     description: Autenticação 3DS para pagamentos com cartão (só sellers com adquirente Zendry).
   - name: Refunds
-    description: Estornos. Funciona para sellers com adquirente Pagar.me; para Zendry, endpoint ainda não confirmado com o suporte deles.
+    description: Estornos. Endpoint da Zendry (única adquirente suportada) ainda não confirmado com o suporte deles.
   - name: Test Mode
     description: Simulação de pagamentos em modo teste.
   - name: Webhook Endpoints
@@ -210,12 +210,11 @@ paths:
       summary: Estorna um pagamento com status "paid".
       description: |
         Reverte o ledger de dupla-entrada e o saldo retido/disponível do
-        seller — mas só DEPOIS de confirmar o estorno na adquirente. Hoje só
-        funciona de verdade para sellers com adquirente `pagarme` (estorno
-        real via SDK oficial). Para `zendry`, o endpoint de estorno nunca foi
-        confirmado com o suporte deles — a chamada falha com
-        `acquirer_refund_unsupported` ou `acquirer_refund_failed` em vez de
-        fingir que o estorno aconteceu.
+        seller — mas só DEPOIS de confirmar o estorno na adquirente. Hoje a
+        chamada sempre falha com `acquirer_refund_unsupported` ou
+        `acquirer_refund_failed` — o endpoint de estorno da Zendry (única
+        adquirente suportada) nunca foi confirmado com o suporte deles, e
+        preferimos isso a fingir que o estorno aconteceu.
 
         Só estorno TOTAL por enquanto (sem valor parcial). Só pagamentos
         `mode: "live"` com status `paid` podem ser estornados.

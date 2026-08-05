@@ -26,10 +26,9 @@ const ERROR_TYPE_BY_CODE: Record<string, ApiErrorType> = {
 /**
  * POST /v1/refunds
  *
- * Estorna um pagamento com status "paid". Só funciona hoje para sellers com
- * adquirente "pagarme" (refund real via SDK oficial) — para "zendry", o
- * endpoint de estorno nunca foi confirmado com o suporte deles, então a
- * chamada falha com `acquirer_refund_unsupported`/`acquirer_refund_failed`
+ * Estorna um pagamento com status "paid". O endpoint de estorno da Zendry
+ * (única adquirente suportada) nunca foi confirmado com o suporte deles —
+ * a chamada falha com `acquirer_refund_unsupported`/`acquirer_refund_failed`
  * em vez de fingir que funcionou (ver acquirers/zendry.acquirer.ts).
  */
 export const createRefund = async (req: ApiKeyRequest, res: Response): Promise<void> => {

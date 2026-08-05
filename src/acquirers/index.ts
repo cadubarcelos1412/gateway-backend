@@ -2,13 +2,17 @@
  * 📦 src/acquirers/index.ts
  * Ponto único de entrada para toda a camada de adquirentes.
  *
- * - Centraliza todos os adapters (Pagar.me, etc.)
+ * - Centraliza todos os adapters
  * - Permite resolver dinamicamente qual adquirente usar em tempo de execução
  * - Facilita expansão futura (ex: Adyen, Stone, Cielo, etc.)
+ *
+ * Pagar.me e ReflowPay foram removidos (2026-08-06) — nenhum seller usava, e
+ * não eram integrações reais/confirmadas (Pagar.me nunca teve credencial de
+ * produção de verdade; ReflowPay/Cashtime era código morto, nunca chamado
+ * por nenhuma rota). Só Zendry é suportada hoje.
  */
 
 import { IAcquirer } from "./IAcquirer";
-import { PagarmeAcquirer } from "./pagarme.acquirer";
 import { ZendryAcquirer } from "./zendry.acquirer";
 
 /* -------------------------------------------------------------------------- */
@@ -16,10 +20,10 @@ import { ZendryAcquirer } from "./zendry.acquirer";
 /* -------------------------------------------------------------------------- */
 
 // Lista de chaves de adquirentes suportadas atualmente
-export type AcquirerKey = "pagarme" | "zendry";
+export type AcquirerKey = "zendry";
 
 // Se precisar adicionar novas, basta incluir aqui
-export const ACQUIRER_KEYS: readonly AcquirerKey[] = ["pagarme", "zendry"] as const;
+export const ACQUIRER_KEYS: readonly AcquirerKey[] = ["zendry"] as const;
 
 /* -------------------------------------------------------------------------- */
 /* 🏭 Registro de Adapters (Factory Map)                                      */
@@ -30,7 +34,6 @@ export const ACQUIRER_KEYS: readonly AcquirerKey[] = ["pagarme", "zendry"] as co
  * Isso garante que todos tenham os mesmos métodos públicos.
  */
 export const ACQUIRER_REGISTRY: Record<AcquirerKey, new () => IAcquirer> = {
-  pagarme: PagarmeAcquirer,
   zendry: ZendryAcquirer,
 };
 
@@ -42,7 +45,7 @@ export const ACQUIRER_REGISTRY: Record<AcquirerKey, new () => IAcquirer> = {
  * resolveAcquirer — instancia dinamicamente um adapter com base na chave.
  *
  * @example
- * const acquirer = resolveAcquirer("pagarme");
+ * const acquirer = resolveAcquirer("zendry");
  * await acquirer.createTransaction(dto);
  */
 export function resolveAcquirer(key: AcquirerKey): IAcquirer {
@@ -61,9 +64,5 @@ export function resolveAcquirer(key: AcquirerKey): IAcquirer {
 export * from "./types";
 export * from "./IAcquirer";
 
-// Fábrica alternativa (mantida para compatibilidade)
-export { getAcquirer } from "./factory";
-
-// Expor adapters diretamente (útil para testes e debug)
-export { PagarmeAcquirer } from "./pagarme.acquirer";
+// Expor adapter diretamente (útil para testes e debug)
 export { ZendryAcquirer } from "./zendry.acquirer";

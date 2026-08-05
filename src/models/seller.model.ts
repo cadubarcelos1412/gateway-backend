@@ -9,7 +9,9 @@ import { FeeTableSchema } from "./feeTable.schema";
 
 export type SellerType = "PF" | "PJ";
 export type KycStatus = "pending" | "under_review" | "approved" | "rejected" | "active";
-export type AcquirerType = "pagarme" | "reflowpay" | "zendry";
+// Pagar.me e ReflowPay removidos (2026-08-06) — nenhum seller usava, nenhuma
+// das duas era integração real/confirmada. Só Zendry é suportada hoje.
+export type AcquirerType = "zendry";
 
 export interface IAddress {
   street: string;
@@ -157,8 +159,8 @@ const SellerSchema = new Schema<ISeller>(
     // 🏦 Multiadquirência – cada seller pode ter sua adquirente configurada
     acquirer: {
       type: String,
-      enum: ["pagarme", "reflowpay", "zendry"],
-      default: "pagarme",
+      enum: ["zendry"],
+      default: "zendry",
       required: true,
       index: true,
     },

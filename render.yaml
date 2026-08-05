@@ -27,14 +27,6 @@ services:
         sync: false
       - key: ALLOWED_ORIGINS
         sync: false
-      - key: PAGARME_ACCOUNT_ID
-        sync: false
-      - key: PAGARME_PUBLIC_KEY
-        sync: false
-      - key: PAGARME_SECRET_KEY
-        sync: false
-      - key: PAGARME_WEBHOOK_SECRET
-        sync: false
       - key: ZENDRY_CLIENT_ID
         sync: false
       - key: ZENDRY_CLIENT_SECRET
@@ -50,4 +42,8 @@ services:
       - key: CLOUDINARY_API_KEY
         sync: false
       - key: CLOUDINARY_API_SECRET
+        sync: false
+      - key: RESEND_API_KEY
+        sync: false
+      - key: EMAIL_FROM
         sync: false

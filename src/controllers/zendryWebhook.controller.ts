@@ -1,28 +1,25 @@
 import { Request, Response } from "express";
-import mongoose from "mongoose";
-import { Transaction } from "../models/transaction.model";
 import { ZendryWebhookEvent } from "../models/zendryWebhookEvent.model";
-import { Seller } from "../models/seller.model";
 import { verifyWebhookSecret, parseZendryWebhook } from "../lib/zendry/webhook";
-import { dispatchWebhookEvent } from "../services/webhook.service";
-import { toPublicPayment } from "../utils/publicPayment";
-import { reverseTransactionLedgerAndWallet } from "../services/ledger/reversal.service";
+import { applyZendryPaymentStatus } from "../services/zendryPaymentStatus.service";
 
 /**
  * POST /api/transactions/webhook/zendry?key=SEU_ZENDRY_WEBHOOK_SECRET
  *
  * Recebe confirmações de Pix (`pix_qrcode`) e cartão (`card_payment`) da
- * Zendry. Ao contrário do webhook genérico (Pagar.me), a autenticidade é
- * validada por um segredo nosso na query string (`?key=`) — ver
- * ZENDRY-MIGRATION.md, seção Webhooks, sobre a divergência com o mecanismo
- * oficial (header Authorization) e por que esse projeto usa o da query.
+ * Zendry. A autenticidade é validada por um segredo nosso na query string
+ * (`?key=`) — ver ZENDRY-MIGRATION.md, seção Webhooks, sobre a divergência
+ * com o mecanismo oficial (header Authorization) e por que esse projeto
+ * usa o da query.
  *
- * Quando a transação vira "failed" (recusada/cancelada depois da reserva
- * otimista feita na criação), reverte os lançamentos de ledger e a reserva
- * de wallet dentro da mesma transação Mongo que atualiza o status — ver
- * services/ledger/reversal.service.ts. Esse gap (reserva sem reversão em
- * caso de falha) existia igual pro webhook genérico da Pagar.me; ainda não
- * foi corrigido lá.
+ * ⚠️ Confirmado em produção em 2026-08-06: nenhum webhook da Zendry chegou
+ * aqui, nunca, desde o deploy deste backend — a URL de callback foi
+ * registrada manualmente na conta Zendry no projeto ANTERIOR (fora do
+ * código, ver lib/zendry/webhook.ts) e provavelmente nunca foi atualizada
+ * pra apontar aqui. Por isso existe zendryReconciliation.service.ts — poll
+ * periódico que consulta a Zendry direto e aplica a mesma lógica daqui
+ * (applyZendryPaymentStatus), como rede de segurança independente de
+ * webhook chegar ou não.
  */
 export const zendryWebhook = async (req: Request, res: Response): Promise<void> => {
   const providedKey = typeof req.query.key === "string" ? req.query.key : null;
@@ -57,48 +54,7 @@ export const zendryWebhook = async (req: Request, res: Response): Promise<void> 
       throw err;
     }
 
-    const transaction = await Transaction.findOne({ externalId: event.externalId });
-    if (transaction) {
-      let newlyApproved = false;
-      let newlyFailed = false;
-
-      if (event.status === "approved" && transaction.status !== "approved") {
-        transaction.status = "approved";
-        newlyApproved = true;
-        await transaction.save();
-      } else if (
-        (event.status === "rejected" || event.status === "cancelled") &&
-        transaction.status === "pending"
-      ) {
-        newlyFailed = true;
-        const session = await mongoose.startSession();
-        session.startTransaction();
-        try {
-          transaction.status = "failed";
-          await transaction.save({ session });
-          await reverseTransactionLedgerAndWallet(transaction, session, `zendry webhook: ${event.status}`);
-          await session.commitTransaction();
-        } catch (reversalErr) {
-          await session.abortTransaction();
-          console.error(`❌ Erro ao reverter ledger/wallet da transação ${transaction._id}:`, reversalErr);
-          throw reversalErr;
-        } finally {
-          session.endSession();
-        }
-      }
-      // status "pending" — nada a fazer.
-
-      if (newlyApproved || newlyFailed) {
-        const seller = await Seller.findOne({ userId: transaction.userId });
-        if (seller) {
-          void dispatchWebhookEvent(
-            String(seller._id),
-            newlyApproved ? "payment.paid" : "payment.failed",
-            toPublicPayment(transaction)
-          );
-        }
-      }
-    }
+    await applyZendryPaymentStatus(event.externalId, event.status);
 
     res.status(200).json({ status: true });
   } catch (error) {

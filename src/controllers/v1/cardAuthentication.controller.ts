@@ -27,7 +27,7 @@ function sendApiError(res: Response, status: number, type: ApiErrorType, code: s
  * Só funciona para sellers com adquirente "zendry".
  */
 export const getCardAuthenticationToken = async (req: ApiKeyRequest, res: Response): Promise<void> => {
-  const acquirerKey = (req.merchant as any)?.acquirer || "pagarme";
+  const acquirerKey = (req.merchant as any)?.acquirer || "zendry";
   if (acquirerKey !== "zendry") {
     sendApiError(
       res,

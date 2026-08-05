@@ -369,8 +369,8 @@ curl https://pyxgate-api.onrender.com/v1/account \
       <p>Estorna um pagamento com <code>status: "paid"</code>. Reverte o ledger de dupla-entrada e o saldo do seller só depois de confirmar o estorno na adquirente — nunca antes. Só estorno total (sem valor parcial) por enquanto.</p>
 
       <div class="callout warn">
-        <div class="callout-title">Zendry: endpoint de estorno ainda não confirmado</div>
-        <p>Funciona de verdade para sellers com adquirente <code>pagarme</code>. Para <code>zendry</code>, o endpoint de estorno/cancelamento nunca foi confirmado com o suporte deles — a chamada falha com <code>acquirer_refund_unsupported</code> ou <code>acquirer_refund_failed</code> em vez de fingir que o estorno aconteceu.</p>
+        <div class="callout-title">Endpoint de estorno ainda não confirmado com a Zendry</div>
+        <p>Hoje a chamada sempre falha com <code>acquirer_refund_unsupported</code> ou <code>acquirer_refund_failed</code> — o endpoint de estorno/cancelamento da Zendry (única adquirente suportada) nunca foi confirmado com o suporte deles, e preferimos isso a fingir que o estorno aconteceu.</p>
       </div>
 
       <table>

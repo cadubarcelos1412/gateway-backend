@@ -57,7 +57,7 @@ vice-versa.
 | `POST /v1/test/payments/:id/pay` \| `/fail` | Simula aprovação/falha em modo teste |
 | `POST /v1/webhook_endpoints` + CRUD | Cadastra endpoints para receber eventos |
 | `GET /v1/card_authentications/token` | Token pro desafio 3DS de cartão no navegador do comprador — ver [guia-cartao.md](./guia-cartao.md). Só sellers com adquirente `zendry` |
-| `POST /v1/refunds` | Estorna um pagamento pago. Funciona de verdade para sellers com adquirente `pagarme`; para `zendry`, ainda não (endpoint de estorno não confirmado com o suporte deles) |
+| `POST /v1/refunds` | Estorna um pagamento pago. Ainda não funciona — o endpoint de estorno da Zendry (única adquirente suportada) nunca foi confirmado com o suporte deles |
 
 A especificação completa está em [`openapi.yaml`](./openapi.yaml). A versão
 navegável, com exemplos, é a página [`/developers`](https://pyxgate.com/developers).

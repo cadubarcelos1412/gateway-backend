@@ -89,7 +89,7 @@ export class TransactionService {
     if (idempotencyKey) {
       const existing = await Transaction.findOne({ idempotencyKey }).lean();
       if (existing) {
-        return { transaction: existing as unknown as ITransaction, acquirer: (seller as any).acquirer || "pagarme" };
+        return { transaction: existing as unknown as ITransaction, acquirer: (seller as any).acquirer || "zendry" };
       }
     }
 
@@ -150,7 +150,7 @@ export class TransactionService {
 
     const { flags: riskFlags, level: riskLevel } = RiskEngine.evaluate({ amount, ip, seller });
 
-    const acquirerKey = (seller as any).acquirer || "pagarme";
+    const acquirerKey = (seller as any).acquirer || "zendry";
     const acquirer = resolveAcquirer(acquirerKey);
 
     const dto: CreateTransactionDTO = {
