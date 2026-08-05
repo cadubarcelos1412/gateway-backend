@@ -1,9 +1,12 @@
 import mongoose, { ClientSession, Types } from "mongoose";
 import { Wallet } from "../models/wallet.model";
 import CashoutRequest from "../models/cashoutRequest.model";
+import { Seller } from "../models/seller.model";
 import { TransactionAuditService } from "./transactionAudit.service";
 import { postLedgerEntries } from "./ledger/ledger.service";
 import { round2 } from "./ledger/helpers";
+import { getUsdtQuote, sendUsdtPayment } from "../lib/zendry/crypto";
+import { DEFAULT_FEE_TABLE } from "../models/feeTable.types";
 
 /**
  * 💸 Serviço de Cashout (Liquidação)
@@ -55,7 +58,7 @@ export class CashoutService {
   static async approveCashout(
     cashoutId: Types.ObjectId,
     adminId: Types.ObjectId,
-    session?: ClientSession
+    session: ClientSession
   ) {
     const cashout = await CashoutRequest.findById(cashoutId);
     if (!cashout) throw new Error("Solicitação não encontrada.");
@@ -78,7 +81,8 @@ export class CashoutService {
         sellerId: cashout.userId.toString(),
         source: { system: "cashout", acquirer: "admin" },
         eventAt: new Date(),
-      }
+      },
+      session
     );
 
     wallet.log.push({
@@ -166,5 +170,182 @@ export class CashoutService {
     });
 
     return { cashout, wallet };
+  }
+
+  /**
+   * 4️⃣ Saque em USDT via Zendry — diferente do saque Pix (manual, admin
+   * aprova depois), esse dispara a chamada real à Zendry NA HORA. Exige KYC
+   * aprovado e respeita um teto de valor por saque
+   * (ZENDRY_MAX_USDT_CASHOUT_BRL).
+   *
+   * IMPORTANTE sobre atomicidade — isso é DIFERENTE do resto do
+   * cashout.service.ts de propósito: `sendUsdtPayment` é uma chamada HTTP
+   * externa e IRREVERSÍVEL (dinheiro sai de verdade), não uma escrita no
+   * nosso banco. Se ela ficasse no meio de uma única transação Mongo (como
+   * o resto do arquivo faz, corretamente, só com escritas locais), um erro
+   * QUALQUER depois do envio (ex.: falha ao salvar a wallet) faria a
+   * transação abortar e apagaria até o REGISTRO do saque — sobrando USDT
+   * enviado de verdade sem nenhum rastro no banco. Por isso aqui:
+   *   1) grava o CashoutRequest ANTES de mandar o USDT (sessão própria,
+   *      commit imediato — existe um registro mesmo que tudo dê errado
+   *      depois);
+   *   2) manda o USDT;
+   *   3) só DEPOIS do envio confirmado, tenta debitar wallet + lançar
+   *      ledger numa segunda transação — se essa segunda parte falhar, o
+   *      dinheiro já foi enviado e o CashoutRequest já teve seu
+   *      externalReference gravado, então dá pra reconciliar manualmente
+   *      (não é um caso "saque falhou, sem efeito", é "saque funcionou,
+   *      contabilidade ficou pendente de acerto").
+   *
+   * Lacunas conhecidas (ver ZENDRY-MIGRATION.md / plano): não existe
+   * confirmação/webhook documentado pro pagamento cripto — `status` fica
+   * em "approved" (enviado), nunca "completed", até isso ser esclarecido
+   * com o suporte da Zendry.
+   */
+  static async createCryptoCashout(
+    userId: Types.ObjectId,
+    amountBRL: number,
+    destinationAddress: string
+  ) {
+    if (!amountBRL || amountBRL <= 0) throw new Error("Valor de saque inválido.");
+
+    const maxAmount = Number(process.env.ZENDRY_MAX_USDT_CASHOUT_BRL || 500);
+    if (amountBRL > maxAmount) {
+      throw new Error(`Valor acima do limite por saque em USDT (R$ ${maxAmount.toFixed(2)}).`);
+    }
+
+    if (!destinationAddress || destinationAddress.trim().length < 10) {
+      throw new Error("Endereço de destino inválido.");
+    }
+
+    const treasuryWalletId = process.env.ZENDRY_TREASURY_WALLET_ID;
+    if (!treasuryWalletId) {
+      throw new Error("Saque em USDT indisponível no momento (wallet-tesouro não configurada).");
+    }
+
+    const seller = await Seller.findOne({ userId });
+    if (!seller) throw new Error("Seller não encontrado.");
+    if (seller.kycStatus !== "approved" && seller.kycStatus !== "active") {
+      throw new Error("Saque em USDT exige verificação de identidade aprovada.");
+    }
+
+    const wallet = await Wallet.findOne({ userId });
+    if (!wallet) throw new Error("Carteira não encontrada.");
+    if (wallet.balance.available < amountBRL) throw new Error("Saldo insuficiente para saque.");
+
+    const usdtOut = seller.feeTable?.usdtOut ?? DEFAULT_FEE_TABLE.usdtOut;
+    const fee = round2(usdtOut.fixed + (amountBRL * usdtOut.percentage) / 100);
+    const netAmountBRL = round2(amountBRL - fee);
+    if (netAmountBRL <= 0) throw new Error("Valor líquido do saque inválido após taxas.");
+
+    const { brlPrice } = await getUsdtQuote();
+    if (!brlPrice || brlPrice <= 0) throw new Error("Cotação USDT indisponível no momento.");
+    const usdtAmount = Math.round((netAmountBRL / brlPrice) * 100) / 100;
+
+    // 1️⃣ Registro ANTES do envio — sem sessão, commit imediato.
+    const cashout = await CashoutRequest.create({
+      userId,
+      amount: amountBRL,
+      status: "pending",
+      rail: "usdt",
+      destinationAddress,
+      quotedBrlPrice: brlPrice,
+      usdtAmount,
+      fee,
+      netAmount: netAmountBRL,
+    });
+
+    // 2️⃣ Envio real — irreversível a partir daqui se der certo.
+    let result;
+    try {
+      result = await sendUsdtPayment({
+        senderWalletId: treasuryWalletId,
+        receiverAddress: destinationAddress,
+        valueUsdt: usdtAmount,
+      });
+    } catch (err) {
+      // Nunca propaga a resposta bruta da Zendry pra cima (mesma disciplina
+      // do ZendryAcquirer) — detalhe completo só no log do servidor.
+      console.error("❌ Zendry (saque USDT) falhou:", err);
+      cashout.status = "rejected";
+      cashout.rejectionReason = "Erro ao enviar USDT — tente novamente ou contate o suporte.";
+      await cashout.save();
+      throw new Error("Erro ao enviar USDT — tente novamente ou contate o suporte.");
+    }
+
+    // "approved" = enviado à Zendry com sucesso. Não existe confirmação
+    // assíncrona documentada pra virar "completed" — ver comentário da classe.
+    cashout.status = "approved";
+    cashout.externalReference = result.referenceCode;
+    cashout.providerStatus = result.status;
+    await cashout.save();
+
+    // 3️⃣ Debita wallet + lança ledger — numa transação própria, DEPOIS do
+    // envio já confirmado. Se isso falhar, o dinheiro já saiu e o registro
+    // do saque (com externalReference) já existe pra reconciliação manual.
+    const session = await mongoose.startSession();
+    session.startTransaction();
+    try {
+      wallet.balance.available = round2(wallet.balance.available - amountBRL);
+      wallet.log.push({
+        transactionId: cashout._id as Types.ObjectId,
+        type: "withdraw",
+        method: "crypto",
+        amount: amountBRL,
+        security: {
+          createdAt: new Date(),
+          ipAddress: "system",
+          userAgent: "crypto-cashout",
+        },
+      });
+      await wallet.save({ session });
+
+      await postLedgerEntries(
+        [
+          { account: "passivo_seller", type: "debit", amount: netAmountBRL },
+          { account: "tesouraria_usdt", type: "credit", amount: netAmountBRL },
+          { account: "passivo_seller", type: "debit", amount: fee },
+          { account: "receita_taxa_kissa", type: "credit", amount: fee },
+        ],
+        {
+          idempotencyKey: `crypto_cashout:${(cashout._id as Types.ObjectId).toString()}`,
+          transactionId: (cashout._id as Types.ObjectId).toString(),
+          sellerId: (seller._id as Types.ObjectId).toString(),
+          source: { system: "cashout", acquirer: "zendry" },
+          eventAt: new Date(),
+        },
+        session
+      );
+
+      await session.commitTransaction();
+    } catch (err) {
+      await session.abortTransaction();
+      // CRÍTICO, mas não é um erro pro seller — o USDT já foi enviado de
+      // verdade. Fica registrado pra reconciliação manual (o CashoutRequest
+      // já tem status "approved" + externalReference salvos acima).
+      console.error(
+        `❌ CRÍTICO: USDT enviado (reference_code: ${result.referenceCode}, cashout: ${(cashout._id as Types.ObjectId).toString()}) mas falhou ao debitar wallet/lançar ledger:`,
+        err
+      );
+    } finally {
+      session.endSession();
+    }
+
+    await TransactionAuditService.log({
+      transactionId: cashout._id as Types.ObjectId,
+      sellerId: seller._id as Types.ObjectId,
+      userId,
+      amount: amountBRL,
+      // AuditData.method só aceita pix/credit_card/boleto hoje — mesma
+      // limitação que o resto do cashout.service.ts já tem (approveCashout/
+      // rejectCashout também gravam "pix" independente do trilho real).
+      method: "pix",
+      status: "approved",
+      kycStatus: seller.kycStatus,
+      flags: [],
+      description: `Saque em USDT enviado via Zendry (reference_code: ${result.referenceCode}).`,
+    });
+
+    return { cashout, wallet, usdtAmount };
   }
 }

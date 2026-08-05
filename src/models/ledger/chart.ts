@@ -37,4 +37,8 @@ export const CHART_OF_ACCOUNTS: Record<
     desc: "Custos pagos à adquirente (MDR, tarifas, etc.)",
     nature: "expense",
   },
+  tesouraria_usdt: {
+    desc: "Wallet USDT custodiada nossa na Zendry — origem dos saques em cripto",
+    nature: "asset",
+  },
 };

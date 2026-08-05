@@ -15,6 +15,12 @@ export interface IUser extends Document {
   /** ✅ CPF ou CNPJ do usuário (obrigatório p/ Bacen e adquirentes) */
   document: string;
 
+  /** 🔐 PIN de saque — obrigatório pra autorizar qualquer cashout (Pix/USDT). */
+  withdrawalPin?: {
+    hash: string;
+    setAt: Date;
+  };
+
   /** 🔐 Tokens e integrações externas */
   token?: {
     pushcut?: {
@@ -71,6 +77,11 @@ const userSchema = new Schema<IUser>(
       required: true,
       unique: true,
       trim: true,
+    },
+
+    withdrawalPin: {
+      hash: { type: String },
+      setAt: { type: Date },
     },
 
     token: {

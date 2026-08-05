@@ -18,6 +18,14 @@ export ZENDRY_WEBHOOK_SECRET="..."
 | `test-pix-create.mjs` | Criação de Pix (R$ 1,00) | **Sim** — QR real de R$1,00, ninguém precisa pagar | Client ID/Secret |
 | `test-webhook.mjs` | Simula uma notificação de webhook chegando no SEU endpoint | Não (não fala com a Zendry, só testa seu próprio código) | Endpoint local/deployado rodando |
 | `test-card-create.mjs` | Criação de pagamento de cartão | **Sim, cobrança real** — só rode com um cartão de teste de baixo valor e autorização explícita | Client ID/Secret + dados de um cartão real + `threeds_data` já obtido no navegador (não dá pra simular 3DS por script, ver nota no arquivo) |
+| `test-crypto-quote.mjs` | Cotação USDT/BRL | Não | Client ID/Secret |
+| `test-crypto-wallet-create.mjs` | Cria uma wallet USDT | Cria um recurso permanente na Zendry (não é dinheiro, mas não é descartável) — rode só UMA vez pra configurar a wallet-tesouro | Client ID/Secret |
+
+**Não existe endpoint de saque cripto testável por script** —
+`sendUsdtPayment`/`POST /v1/crypto/payments` move USDT de verdade e é
+irreversível; testar exige a wallet-tesouro já fundeada e rodar o endpoint
+real do seller (`POST /api/cashouts/request/usdt`) com valor baixo e
+aprovação explícita, mesmo padrão já usado pro Pix/cartão reais.
 
 **Não existe ambiente de sandbox confirmado para esta API** — todo teste que
 "cria" algo (Pix, cartão) acontece contra a API de **produção** de verdade.

@@ -19,6 +19,24 @@ export interface ICashoutRequest extends Document {
   approvedBy?: Types.ObjectId;
   approvedAt?: Date;
   rejectionReason?: string;
+
+  /** Trilho do saque — "pix" (padrão, fluxo manual existente) ou "usdt" (Zendry, automático). */
+  rail: "pix" | "usdt";
+  /** Endereço USDT de destino informado pelo seller — só existe quando rail === "usdt". */
+  destinationAddress?: string;
+  /** Rede da carteira (ex.: "trc20") — não confirmada com a Zendry, ver ZENDRY-MIGRATION.md. */
+  network?: string;
+  /** Cotação BRL/USDT no momento do saque — snapshot pra auditoria/disputa. */
+  quotedBrlPrice?: number;
+  /** Valor em USDT efetivamente enviado. */
+  usdtAmount?: number;
+  fee?: number;
+  netAmount?: number;
+  /** reference_code devolvido pela Zendry — usado se algum dia existir consulta/webhook de status. */
+  externalReference?: string;
+  /** status bruto devolvido pela Zendry (ex.: "pending") — não sabemos os valores possíveis além desse. */
+  providerStatus?: string;
+
   createdAt: Date;
   updatedAt: Date;
 }
@@ -41,6 +59,16 @@ const CashoutRequestSchema = new Schema<ICashoutRequest>(
     approvedBy: { type: Schema.Types.ObjectId, ref: "User" },
     approvedAt: { type: Date },
     rejectionReason: { type: String },
+
+    rail: { type: String, enum: ["pix", "usdt"], default: "pix", required: true },
+    destinationAddress: { type: String, trim: true },
+    network: { type: String, trim: true },
+    quotedBrlPrice: { type: Number },
+    usdtAmount: { type: Number },
+    fee: { type: Number },
+    netAmount: { type: Number },
+    externalReference: { type: String, index: true },
+    providerStatus: { type: String },
   },
   { timestamps: true }
 );

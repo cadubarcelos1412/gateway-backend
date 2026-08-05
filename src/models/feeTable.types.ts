@@ -9,6 +9,8 @@ export type CardInstallmentFees = Record<string, number>; // "1".."14" -> percen
 export interface IFeeTable {
   pixIn: { percentage: number };
   pixOut: { percentage: number; fixed: number };
+  /** Taxa do saque em USDT via Zendry — aplicada sobre o valor BASE em BRL, antes da conversão. */
+  usdtOut: { percentage: number; fixed: number };
   settlementDays: number;
   cardFees: Record<CardBrand, CardInstallmentFees>;
   anticipation: {
@@ -40,6 +42,7 @@ const STANDARD: CardInstallmentFees = { ...MASTERCARD };
 export const DEFAULT_FEE_TABLE: IFeeTable = {
   pixIn: { percentage: 2.89 },
   pixOut: { percentage: 1.99, fixed: 0 },
+  usdtOut: { percentage: 2.5, fixed: 0 },
   settlementDays: 30,
   cardFees: {
     amex: AMEX,

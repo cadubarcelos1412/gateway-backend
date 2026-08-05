@@ -19,6 +19,10 @@ export const FeeTableSchema = new Schema<IFeeTable>(
       percentage: { type: Number, required: true },
       fixed: { type: Number, required: true, default: 0 },
     },
+    usdtOut: {
+      percentage: { type: Number, required: true, default: 2.5 },
+      fixed: { type: Number, required: true, default: 0 },
+    },
     settlementDays: { type: Number, required: true, default: 30 },
     cardFees: {
       amex: { type: CardInstallmentFeesSchema, required: true },

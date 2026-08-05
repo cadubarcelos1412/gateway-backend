@@ -39,7 +39,7 @@ export const getMe = async (req: Request, res: Response): Promise<void> => {
   if (!userId) return;
 
   try {
-    const user = await User.findById(userId).select("-password").lean();
+    const user = await User.findById(userId).select("-password -withdrawalPin.hash").lean();
     if (!user) {
       res.status(404).json({ status: false, msg: "Usuário não encontrado." });
       return;

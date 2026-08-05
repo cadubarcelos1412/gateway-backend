@@ -5,6 +5,10 @@ import {
   updateSplitFees,
   createAdminUser,
   getSplitFees,
+  verifyEmail,
+  resendCode,
+  forgotPassword,
+  resetPassword,
 } from "../controllers/user.controller";
 
 const router = Router();
@@ -27,6 +31,34 @@ router.post("/login", loginUser);
  * Acesso: Público (controle feito no controller)
  */
 router.post("/register", registerUser);
+
+/**
+ * 📧 Confirma o e-mail de cadastro com o código recebido
+ * POST /api/users/verify-email
+ * Acesso: Público
+ */
+router.post("/verify-email", verifyEmail);
+
+/**
+ * 🔁 Reenvia código (cadastro, senha ou PIN)
+ * POST /api/users/resend-code
+ * Acesso: Público
+ */
+router.post("/resend-code", resendCode);
+
+/**
+ * 🔑 Solicita código de redefinição de senha
+ * POST /api/users/forgot-password
+ * Acesso: Público
+ */
+router.post("/forgot-password", forgotPassword);
+
+/**
+ * 🔑 Redefine a senha com o código recebido
+ * POST /api/users/reset-password
+ * Acesso: Público
+ */
+router.post("/reset-password", resetPassword);
 
 /**
  * 👑 Cria um novo usuário administrador

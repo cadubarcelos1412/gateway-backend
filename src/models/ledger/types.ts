@@ -14,7 +14,8 @@ export type LedgerAccount =
   | "conta_liquidacao"             // Caixa/Banco de liquidação
   | "reserva_risco"                // Reserva para chargebacks
   | "ajustes_a_pagar"              // Ajustes/estornos a pagar
-  | "custo_adquirente";            // Custo (tarifas da adquirente)
+  | "custo_adquirente"             // Custo (tarifas da adquirente)
+  | "tesouraria_usdt";             // Ativo (wallet USDT custodiada nossa, saque cripto)
 
 /**
  * Entrada contábil “crua” usada nos serviços para registrar dupla-entrada.

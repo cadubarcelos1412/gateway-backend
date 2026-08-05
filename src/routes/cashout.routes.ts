@@ -1,6 +1,7 @@
 import { Router } from "express";
 import {
   createCashoutRequest,
+  createCryptoCashoutRequest,
   listCashoutRequests,
   approveCashoutRequest,
   rejectCashoutRequest,
@@ -18,6 +19,15 @@ const router = Router();
  * @access Protegido (token JWT)
  */
 router.post("/request", createCashoutRequest);
+
+/**
+ * @route POST /api/cashouts/request/usdt
+ * @desc Criar solicitação de saque em USDT via Zendry (seller) — dispara o
+ *       envio real na hora, sem aprovação manual de admin. Ver
+ *       CashoutService.createCryptoCashout pras validações/limites.
+ * @access Protegido (token JWT)
+ */
+router.post("/request/usdt", createCryptoCashoutRequest);
 
 /**
  * @route GET /api/cashouts/list
