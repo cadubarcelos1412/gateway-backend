@@ -31,7 +31,8 @@ export class CashoutWebhookService {
           sellerId: cashout.userId.toString(),
           source: { system: "bank_webhook", ip: event?.ip || "bank" },
           eventAt: new Date(),
-        }
+        },
+        session
       );
 
       // ✅ Atualiza o status do cashout

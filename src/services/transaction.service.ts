@@ -306,7 +306,8 @@ export class TransactionService {
           sellerId: (seller._id as Types.ObjectId).toString(),
           source: { system: "transactions", acquirer: acquirerKey, ip },
           eventAt: tx.createdAt,
-        }
+        },
+        session
       );
     } catch (ledgerErr) {
       console.error("❌ Erro ao registrar lançamentos contábeis:", ledgerErr);

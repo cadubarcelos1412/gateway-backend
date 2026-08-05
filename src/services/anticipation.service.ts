@@ -82,9 +82,7 @@ export class AnticipationService {
 
     // 🧾 Ledger — reduz o passivo com o seller no valor da taxa retida (a
     // plataforma fica com extraFeeAmount, o seller recebe o resto na hora).
-    // Segue o mesmo padrão de CashoutService: sessão própria do postLedgerEntries,
-    // independente da sessão do controller (risco pré-existente, não é escopo
-    // desta tarefa redesenhar o mecanismo de ledger).
+    // Roda na mesma sessão do controller — atômico com a wallet/request acima.
     await postLedgerEntries(
       [
         { account: "passivo_seller", type: "debit", amount: extraFeeAmount },
@@ -96,7 +94,8 @@ export class AnticipationService {
         sellerId: (seller._id as Types.ObjectId).toString(),
         source: { system: "anticipation" },
         eventAt: new Date(),
-      }
+      },
+      session
     );
 
     return { request, wallet, payoutAmount, extraFeeAmount };
