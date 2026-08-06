@@ -64,6 +64,9 @@ export interface ICheckout extends Document {
    * pra o vendedor sempre receber o valor cheio do produto.
    */
   feeMode: "absorb" | "passOn";
+  /** Se true, o comprador escolhe quantas unidades quer levar (preço multiplicado). Opcional, default false. */
+  allowQuantity: boolean;
+  maxQuantity: number;
   settings: ICheckoutConfig;
   paymentMethods: ICheckoutPayment;
   whatsappButton: IWhatsAppButton;
@@ -104,6 +107,9 @@ const CheckoutSchema = new Schema<ICheckout>(
       enum: ["absorb", "passOn"],
       default: "absorb",
     },
+
+    allowQuantity: { type: Boolean, default: false },
+    maxQuantity: { type: Number, default: 10, min: 1, max: 999 },
 
     settings: {
       // Vazio = frontend mostra a marca padrão da PYX Gate em vez de <img> quebrada.

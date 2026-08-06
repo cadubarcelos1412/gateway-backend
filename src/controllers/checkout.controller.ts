@@ -106,11 +106,13 @@ export const createQuickPaymentLink = async (req: Request, res: Response): Promi
       return;
     }
 
-    const { name, price, methods, feeMode } = req.body as {
+    const { name, price, methods, feeMode, allowQuantity, maxQuantity } = req.body as {
       name?: string;
       price?: number;
       methods?: { pix?: boolean; card?: boolean };
       feeMode?: "absorb" | "passOn";
+      allowQuantity?: boolean;
+      maxQuantity?: number;
     };
 
     if (!name || typeof price !== "number" || price <= 0) {
@@ -145,6 +147,8 @@ export const createQuickPaymentLink = async (req: Request, res: Response): Promi
       productId: product._id,
       slug,
       feeMode: resolvedFeeMode,
+      allowQuantity: allowQuantity === true,
+      maxQuantity: Math.min(Math.max(Number(maxQuantity) || 10, 1), 999),
       settings: {
         logoUrl: "",
         bannerUrl: "",

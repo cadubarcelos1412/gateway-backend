@@ -73,9 +73,16 @@ async function resolveCheckoutContext(checkoutId: string | undefined, orderBump:
   return { ok: true, context: { checkout, seller, product, bumpProduct, bumpSelected } };
 }
 
-/** Valor recalculado no servidor — nunca confiar em total vindo do cliente. */
-function computeCheckoutAmount(context: CheckoutContext, discountPct: number): number {
-  const base = context.product.price + (context.bumpProduct ? context.bumpProduct.price : 0);
+/**
+ * Valor recalculado no servidor — nunca confiar em total vindo do cliente.
+ * `quantity` só é honrada se o checkout permite (allowQuantity), e sempre
+ * limitada a maxQuantity — nunca confiar num valor arbitrário do comprador.
+ */
+function computeCheckoutAmount(context: CheckoutContext, discountPct: number, quantity: number): number {
+  const safeQuantity = context.checkout.allowQuantity
+    ? Math.min(Math.max(Math.round(quantity) || 1, 1), context.checkout.maxQuantity || 10)
+    : 1;
+  const base = (context.product.price * safeQuantity) + (context.bumpProduct ? context.bumpProduct.price : 0);
   return round(discountPct > 0 ? base - (base * discountPct) / 100 : base);
 }
 
@@ -91,7 +98,7 @@ function computeCheckoutAmount(context: CheckoutContext, discountPct: number): n
  */
 export const payCheckout: RequestHandler = async (req, res) => {
   try {
-    const { checkoutId, customer, orderBump, paymentMethod, card, threedsData } = req.body as {
+    const { checkoutId, customer, orderBump, paymentMethod, card, threedsData, quantity, metadata } = req.body as {
       checkoutId?: string;
       customer?: { name?: string; email?: string; document?: string; phone?: string };
       orderBump?: boolean;
@@ -104,6 +111,8 @@ export const payCheckout: RequestHandler = async (req, res) => {
         installments?: number;
       };
       threedsData?: Record<string, string>;
+      quantity?: number;
+      metadata?: Record<string, unknown>;
     };
 
     if (!customer?.name || !customer?.email || !customer?.document) {
@@ -132,7 +141,7 @@ export const payCheckout: RequestHandler = async (req, res) => {
         return;
       }
 
-      const discountedBase = computeCheckoutAmount(context, checkout.paymentMethods.creditCard.discount || 0);
+      const discountedBase = computeCheckoutAmount(context, checkout.paymentMethods.creditCard.discount || 0, quantity ?? 1);
 
       if (checkout.feeMode === "passOn") {
         // Repassa a taxa da parcela pro comprador — vendedor sempre recebe o
@@ -151,7 +160,7 @@ export const payCheckout: RequestHandler = async (req, res) => {
         res.status(400).json({ status: false, msg: "Pix indisponível para este checkout." });
         return;
       }
-      amount = computeCheckoutAmount(context, checkout.paymentMethods.pix.discount || 0);
+      amount = computeCheckoutAmount(context, checkout.paymentMethods.pix.discount || 0, quantity ?? 1);
     }
 
     if (amount <= 0) {
@@ -201,7 +210,10 @@ export const payCheckout: RequestHandler = async (req, res) => {
           // confiar no que o navegador mandar pra esse campo específico.
           threedsData: method === "card" ? { ...threedsData, ip_address: ip } : undefined,
           idempotencyKey,
-          metadata: { checkoutId, orderBump: bumpSelected, source: "public_checkout" },
+          // Metadata do cliente (ex.: endereço coletado no checkout) é
+          // mesclada, mas as chaves de controle abaixo nunca são
+          // sobrescritáveis por ele.
+          metadata: { ...metadata, checkoutId, orderBump: bumpSelected, source: "public_checkout" },
         },
         ip,
         userAgent,
