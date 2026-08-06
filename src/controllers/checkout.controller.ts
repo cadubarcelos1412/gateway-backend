@@ -106,8 +106,10 @@ export const createQuickPaymentLink = async (req: Request, res: Response): Promi
       return;
     }
 
-    const { name, price, methods, feeMode, allowQuantity, maxQuantity } = req.body as {
+    const { name, description, imageUrl, price, methods, feeMode, allowQuantity, maxQuantity } = req.body as {
       name?: string;
+      description?: string;
+      imageUrl?: string;
       price?: number;
       methods?: { pix?: boolean; card?: boolean };
       feeMode?: "absorb" | "passOn";
@@ -132,6 +134,8 @@ export const createQuickPaymentLink = async (req: Request, res: Response): Promi
     const product = await Product.create({
       userId: user._id,
       name,
+      description: description || "",
+      imageUrl: imageUrl || "",
       price,
     });
 

@@ -25,7 +25,7 @@ export const createProduct = async (req: Request, res: Response): Promise<void> 
       return;
     }
 
-    let { name, description, price, status, category } = req.body;
+    let { name, description, imageUrl, price, status, category } = req.body;
 
     if (!name || price === undefined) {
       res.status(400).json({ status: false, msg: "Campos obrigatórios: 'name' e 'price'." });
@@ -40,6 +40,7 @@ export const createProduct = async (req: Request, res: Response): Promise<void> 
       userId: user._id,
       name,
       description,
+      imageUrl: imageUrl || "",
       price,
       status: status ?? "active",
       category: category ?? "infoproduto",
@@ -101,7 +102,7 @@ export const editProduct = async (req: Request, res: Response): Promise<void> =>
       return;
     }
 
-    let { oldName, newName, description, price, status, category } = req.body;
+    let { oldName, newName, description, imageUrl, price, status, category } = req.body;
 
     if (!oldName) {
       res.status(400).json({ status: false, msg: "O campo 'oldName' é obrigatório para editar um produto." });
@@ -120,6 +121,7 @@ export const editProduct = async (req: Request, res: Response): Promise<void> =>
 
     if (newName) product.name = newName;
     if (description) product.description = description;
+    if (imageUrl !== undefined) product.imageUrl = imageUrl;
     if (price !== undefined) product.price = price;
     if (status) product.status = status;
     if (category) product.category = category;

@@ -4,6 +4,7 @@ export interface IProduct extends Document {
   userId: mongoose.Types.ObjectId;
   name: string;
   description?: string;
+  imageUrl?: string;
   price: number;
   status: "active" | "inactive";
   category: "infoproduto" | "servico" | "assinatura" | "outros";
@@ -19,6 +20,7 @@ const ProductSchema = new Schema<IProduct>({
   userId: { type: Schema.Types.ObjectId, ref: "User", required: true },
   name: { type: String, required: true },
   description: { type: String },
+  imageUrl: { type: String, default: "" },
   price: { type: Number, required: true },
   status: {
     type: String,
