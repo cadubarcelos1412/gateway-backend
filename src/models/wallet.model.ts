@@ -11,6 +11,8 @@ export interface IWallet extends Document {
       amount: number;
       availableIn: Date;
       originTransactionId?: Types.ObjectId; // 🔎 origem da reserva (opcional)
+      /** Método que originou a reserva — só "card" é antecipável (ver AnticipationService). */
+      method?: "card" | "pix" | "bill" | "manual" | "crypto";
       notes?: string; // 📝 motivo ou observação da retenção
     }[];
   };
@@ -48,6 +50,7 @@ const WalletSchema = new Schema<IWallet>(
           amount: { type: Number, default: 0, min: 0 },
           availableIn: { type: Date, required: true },
           originTransactionId: { type: Schema.Types.ObjectId, ref: "Transaction" }, // 🔎 origem da retenção
+          method: { type: String, enum: ["card", "pix", "bill", "manual", "crypto"] },
           notes: { type: String, trim: true },
         },
       ],

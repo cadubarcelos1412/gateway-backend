@@ -1,6 +1,7 @@
 import { ClientSession, Types } from "mongoose";
 import { Seller } from "../models/seller.model";
 import { Wallet } from "../models/wallet.model";
+import { Transaction } from "../models/transaction.model";
 import { AnticipationRequest, AnticipationTier } from "../models/anticipationRequest.model";
 import { getOrCreateDefaultFeeConfig } from "../models/systemFeeConfig.model";
 import { postLedgerEntries } from "./ledger/ledger.service";
@@ -34,6 +35,19 @@ export class AnticipationService {
 
     if (entry.availableIn.getTime() <= Date.now()) {
       throw new Error("Esse valor já está disponível — não precisa antecipar.");
+    }
+
+    // 🚫 Antecipação é só pra cartão — Pix já cai D0, boleto e retenções
+    // manuais (saque, simulação) não são elegíveis. Resolve pela transação de
+    // origem em vez de confiar só em entry.method pra cobrir reservas antigas
+    // criadas antes desse campo existir.
+    let originMethod = entry.method as string | undefined;
+    if (!originMethod && entry.originTransactionId) {
+      const originTx = await Transaction.findById(entry.originTransactionId).select("method").lean();
+      originMethod = originTx?.method === "credit_card" ? "card" : originTx?.method;
+    }
+    if (originMethod !== "card") {
+      throw new Error("Só é possível antecipar valores recebidos por cartão.");
     }
 
     const extraPercentage =

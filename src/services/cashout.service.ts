@@ -28,6 +28,7 @@ export class CashoutService {
     wallet.balance.unAvailable.push({
       amount,
       availableIn: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000), // 3 dias
+      method: "manual",
     });
 
     const [cashout] = await CashoutRequest.create(

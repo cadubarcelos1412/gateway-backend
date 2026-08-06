@@ -242,7 +242,10 @@ export class TransactionService {
       method,
       netAmount,
       riskLevel,
-      settlementDaysOverride: feeTable?.settlementDays,
+      // feeTable.settlementDays é o prazo de liquidação do CARTÃO — nunca
+      // deve sobrepor o D0 do Pix (nem o D+3 padrão do boleto). Só cartão é
+      // antecipável; Pix cai direto disponível.
+      settlementDaysOverride: method === "credit_card" ? feeTable?.settlementDays : undefined,
     });
 
     // 🤝 Split de pagamentos — parcerias ativas do seller pagador. O corte de
@@ -334,6 +337,7 @@ export class TransactionService {
           amount: allocation.amount,
           availableIn,
           originTransactionId: tx._id as Types.ObjectId,
+          method: method === "credit_card" ? "card" : method === "boleto" ? "bill" : "pix",
         });
         recipientWallet.log.push({
           transactionId: tx._id as Types.ObjectId,
@@ -350,6 +354,7 @@ export class TransactionService {
       amount: sellerShare - retentionAmount,
       availableIn,
       originTransactionId: tx._id as Types.ObjectId,
+      method: method === "credit_card" ? "card" : method === "boleto" ? "bill" : "pix",
     });
 
     wallet.log.push({
