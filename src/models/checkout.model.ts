@@ -71,7 +71,7 @@ export interface ICheckout extends Document {
   orderBump: IOrderBump;
   testimonials: ITestimonials;
   background: "white" | "dark";
-  colors: "#8B5CF6" | "#1A1A1A" | "#2196F3" | "#4CAF50" | "#FF9800" | "#E91E63";
+  colors: "#00D084" | "#8B5CF6" | "#1A1A1A" | "#2196F3" | "#4CAF50" | "#FF9800" | "#E91E63";
   status: boolean;
   createdAt: Date;
 }
@@ -106,8 +106,9 @@ const CheckoutSchema = new Schema<ICheckout>(
     },
 
     settings: {
-      logoUrl: { type: String, default: "/" },
-      bannerUrl: { type: String, default: "/" },
+      // Vazio = frontend mostra a marca padrão da PYX Gate em vez de <img> quebrada.
+      logoUrl: { type: String, default: "" },
+      bannerUrl: { type: String, default: "" },
       redirectUrl: { type: String, default: "/" },
       validateDocument: { type: Boolean, default: false },
       needAddress: { type: Boolean, default: false },
@@ -170,6 +171,7 @@ const CheckoutSchema = new Schema<ICheckout>(
     colors: {
       type: String,
       enum: [
+        "#00D084",
         "#8B5CF6",
         "#1A1A1A",
         "#2196F3",
@@ -177,7 +179,7 @@ const CheckoutSchema = new Schema<ICheckout>(
         "#FF9800",
         "#E91E63",
       ],
-      default: "#FF9800",
+      default: "#00D084", // Emerald — cor de marca da PYX Gate
     },
 
     status: { type: Boolean, default: true },

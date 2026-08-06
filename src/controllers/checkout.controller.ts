@@ -57,8 +57,8 @@ export const createCheckout = async (req: Request, res: Response): Promise<void>
       userId: user._id,
       productId: product._id,
       settings: {
-        logoUrl: "/",
-        bannerUrl: "/",
+        logoUrl: "",
+        bannerUrl: "",
         redirectUrl: "/",
         validateDocument: false,
         needAddress: false,
@@ -75,7 +75,7 @@ export const createCheckout = async (req: Request, res: Response): Promise<void>
       orderBump: { status: false, productId: "" },
       testimonials: { status: false, reviews: [] },
       background: "white",
-      colors: "#FF9800",
+      colors: "#00D084",
     });
 
     const savedCheckout = await checkout.save();
@@ -146,8 +146,8 @@ export const createQuickPaymentLink = async (req: Request, res: Response): Promi
       slug,
       feeMode: resolvedFeeMode,
       settings: {
-        logoUrl: "/",
-        bannerUrl: "/",
+        logoUrl: "",
+        bannerUrl: "",
         redirectUrl: "/",
         validateDocument: false,
         needAddress: false,
