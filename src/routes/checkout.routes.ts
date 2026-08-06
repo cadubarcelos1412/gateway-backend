@@ -1,6 +1,7 @@
 import { Router } from "express";
 import {
   createCheckout,
+  createQuickPaymentLink,
   getCheckout,
   getPublicCheckout,
   updateCheckout,
@@ -17,6 +18,12 @@ const router = Router();
  * @route POST /api/checkout/create
  */
 router.post("/create", createCheckout);
+
+/**
+ * ⚡ Criar link de pagamento rápido (Produto + Checkout numa chamada só)
+ * @route POST /api/checkout/quick-link
+ */
+router.post("/quick-link", createQuickPaymentLink);
 
 /**
  * 🔐 Obter checkout autenticado (precisa de token)

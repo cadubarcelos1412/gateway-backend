@@ -4,7 +4,11 @@ import { decodeToken } from "../config/auth";
 import { User } from "../models/user.model";
 import { Product } from "../models/product.model";
 import { Checkout } from "../models/checkout.model";
+import { Seller } from "../models/seller.model";
 import { getZendryAccessToken } from "../lib/zendry/client";
+import { generateSlug } from "../utils/slug";
+import { computeInstallmentOptions } from "../utils/installments";
+import { DEFAULT_FEE_TABLE } from "../models/feeTable.types";
 
 /* 🔑 Utilitário: pegar usuário pelo token */
 const getUserFromToken = async (token?: string) => {
@@ -28,11 +32,6 @@ export const createCheckout = async (req: Request, res: Response): Promise<void>
     // ✅ Valida campos obrigatórios
     if (!productId && !productName) {
       res.status(400).json({ status: false, msg: "Informe o ID ou o nome do produto." });
-      return;
-    }
-
-    if (!settings?.headCode || !settings?.bodyCode) {
-      res.status(400).json({ status: false, msg: "Campos headCode e bodyCode são obrigatórios." });
       return;
     }
 
@@ -63,8 +62,8 @@ export const createCheckout = async (req: Request, res: Response): Promise<void>
         redirectUrl: "/",
         validateDocument: false,
         needAddress: false,
-        headCode: settings.headCode,
-        bodyCode: settings.bodyCode,
+        headCode: settings?.headCode || "",
+        bodyCode: settings?.bodyCode || "",
       },
       paymentMethods: {
         creditCard: { enabled: true, discount: 0 },
@@ -93,16 +92,111 @@ export const createCheckout = async (req: Request, res: Response): Promise<void>
   }
 };
 
-/* 🌐 Obter checkout público */
-export const getPublicCheckout = async (req: Request, res: Response): Promise<void> => {
+/**
+ * 🔗 POST /api/checkout/quick-link
+ * Cria Produto + Checkout numa chamada só, com um slug curto pra URL
+ * pública (pyxgate.com/#/p/<slug>) — pensado pra gerar um link de
+ * pagamento em segundos, sem passar pelo builder completo.
+ */
+export const createQuickPaymentLink = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { id } = req.query;
-    if (!id || typeof id !== "string" || !mongoose.Types.ObjectId.isValid(id)) {
-      res.status(400).json({ status: false, msg: "ID do checkout inválido." });
+    const user = await getUserFromToken(req.headers.authorization);
+    if (!user) {
+      res.status(403).json({ status: false, msg: "Token inválido." });
       return;
     }
 
-    const checkout = await Checkout.findById(new mongoose.Types.ObjectId(id)).lean();
+    const { name, price, methods, feeMode } = req.body as {
+      name?: string;
+      price?: number;
+      methods?: { pix?: boolean; card?: boolean };
+      feeMode?: "absorb" | "passOn";
+    };
+
+    if (!name || typeof price !== "number" || price <= 0) {
+      res.status(400).json({ status: false, msg: "Informe o nome e o preço do produto (maior que zero)." });
+      return;
+    }
+
+    const pixEnabled = methods?.pix !== false; // default true
+    const cardEnabled = methods?.card === true; // default false — cartão é opt-in (exige 3DS)
+    if (!pixEnabled && !cardEnabled) {
+      res.status(400).json({ status: false, msg: "Escolha pelo menos uma forma de pagamento." });
+      return;
+    }
+
+    const resolvedFeeMode: "absorb" | "passOn" = feeMode === "passOn" ? "passOn" : "absorb";
+
+    const product = await Product.create({
+      userId: user._id,
+      name,
+      price,
+    });
+
+    let slug = generateSlug();
+    // Colisão é extremamente improvável (alfabeto de 56 chars ^ 7), mas
+    // trata mesmo assim em vez de confiar cegamente.
+    for (let attempt = 0; attempt < 5 && (await Checkout.exists({ slug })); attempt++) {
+      slug = generateSlug();
+    }
+
+    const checkout = await Checkout.create({
+      userId: user._id,
+      productId: product._id,
+      slug,
+      feeMode: resolvedFeeMode,
+      settings: {
+        logoUrl: "/",
+        bannerUrl: "/",
+        redirectUrl: "/",
+        validateDocument: false,
+        needAddress: false,
+        headCode: "",
+        bodyCode: "",
+      },
+      paymentMethods: {
+        creditCard: { enabled: cardEnabled, discount: 0 },
+        pix: { enabled: pixEnabled, discount: 0 },
+        boleto: { enabled: false, expirationDays: 3, discount: 0 },
+      },
+    });
+
+    let installmentPreview: ReturnType<typeof computeInstallmentOptions> = [];
+    if (cardEnabled) {
+      const seller = await Seller.findOne({ userId: user._id }).lean();
+      installmentPreview = computeInstallmentOptions(price, resolvedFeeMode, seller?.feeTable || DEFAULT_FEE_TABLE);
+    }
+
+    res.status(201).json({
+      status: true,
+      msg: "Link de pagamento criado com sucesso.",
+      slug,
+      checkoutId: String(checkout._id),
+      product: { id: String(product._id), name: product.name, price: product.price },
+      feeMode: resolvedFeeMode,
+      installmentPreview,
+    });
+  } catch (error) {
+    console.error("❌ Erro em createQuickPaymentLink:", error);
+    res.status(500).json({ status: false, msg: "Erro interno ao criar link de pagamento." });
+  }
+};
+
+/* 🌐 Obter checkout público — por ID (link antigo) ou slug (link rápido) */
+export const getPublicCheckout = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { id, slug } = req.query;
+
+    let checkout;
+    if (typeof slug === "string" && slug.trim()) {
+      checkout = await Checkout.findOne({ slug: slug.trim() }).lean();
+    } else if (typeof id === "string" && mongoose.Types.ObjectId.isValid(id)) {
+      checkout = await Checkout.findById(new mongoose.Types.ObjectId(id)).lean();
+    } else {
+      res.status(400).json({ status: false, msg: "Informe um id ou slug de checkout válido." });
+      return;
+    }
+
     if (!checkout) {
       res.status(404).json({ status: false, msg: "Checkout não encontrado." });
       return;
@@ -120,7 +214,17 @@ export const getPublicCheckout = async (req: Request, res: Response): Promise<vo
 
     const product = await Product.findById(checkout.productId).lean();
 
-    res.status(200).json({ status: true, checkout, product });
+    let installmentPreview: ReturnType<typeof computeInstallmentOptions> = [];
+    if (product && checkout.paymentMethods.creditCard.enabled) {
+      const seller = await Seller.findOne({ userId: checkout.userId }).lean();
+      installmentPreview = computeInstallmentOptions(
+        product.price,
+        checkout.feeMode || "absorb",
+        seller?.feeTable || DEFAULT_FEE_TABLE
+      );
+    }
+
+    res.status(200).json({ status: true, checkout, product, installmentPreview });
   } catch (error) {
     console.error("❌ Erro em getPublicCheckout:", error);
     res.status(500).json({ status: false, msg: "Erro interno ao consultar checkout." });

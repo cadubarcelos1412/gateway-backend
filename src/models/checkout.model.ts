@@ -54,6 +54,16 @@ export interface ICheckoutPayment {
 export interface ICheckout extends Document {
   userId: mongoose.Types.ObjectId;
   productId: mongoose.Types.ObjectId;
+  /** Código curto pra URL pública (pyxgate.com/#/p/<slug>) — só presente em checkouts criados após 2026-08-06. */
+  slug?: string;
+  /**
+   * "absorb" (padrão): comprador sempre paga o preço cheio do produto,
+   * independente do parcelamento — o vendedor recebe menos conforme a taxa
+   * da parcela escolhida sobe (comportamento histórico do sistema).
+   * "passOn": o valor cobrado do comprador aumenta conforme o parcelamento,
+   * pra o vendedor sempre receber o valor cheio do produto.
+   */
+  feeMode: "absorb" | "passOn";
   settings: ICheckoutConfig;
   paymentMethods: ICheckoutPayment;
   whatsappButton: IWhatsAppButton;
@@ -82,14 +92,29 @@ const CheckoutSchema = new Schema<ICheckout>(
       immutable: true,
     },
 
+    slug: {
+      type: String,
+      unique: true,
+      sparse: true, // checkouts antigos não têm slug — sparse evita colisão em null
+      index: true,
+    },
+
+    feeMode: {
+      type: String,
+      enum: ["absorb", "passOn"],
+      default: "absorb",
+    },
+
     settings: {
       logoUrl: { type: String, default: "/" },
       bannerUrl: { type: String, default: "/" },
       redirectUrl: { type: String, default: "/" },
       validateDocument: { type: Boolean, default: false },
       needAddress: { type: Boolean, default: false },
-      bodyCode: { type: String, required: true, trim: true },
-      headCode: { type: String, required: true, trim: true },
+      // Scripts de tracking opcionais — não há motivo real pra exigir, é só
+      // conveniência de quem quiser instalar pixel/analytics no checkout.
+      bodyCode: { type: String, default: "", trim: true },
+      headCode: { type: String, default: "", trim: true },
     },
 
     paymentMethods: {

@@ -7,6 +7,7 @@ import { User } from "../models/user.model";
 import { Seller, ISeller } from "../models/seller.model";
 import { TransactionService } from "../services/transaction.service";
 import { round } from "../utils/fees";
+import { DEFAULT_FEE_TABLE } from "../models/feeTable.types";
 
 interface CheckoutContext {
   checkout: ICheckout;
@@ -130,7 +131,21 @@ export const payCheckout: RequestHandler = async (req, res) => {
         res.status(400).json({ status: false, msg: "Dados do cartão ou da autenticação 3DS incompletos." });
         return;
       }
-      amount = computeCheckoutAmount(context, checkout.paymentMethods.creditCard.discount || 0);
+
+      const discountedBase = computeCheckoutAmount(context, checkout.paymentMethods.creditCard.discount || 0);
+
+      if (checkout.feeMode === "passOn") {
+        // Repassa a taxa da parcela pro comprador — vendedor sempre recebe o
+        // valor cheio (mesma estimativa mostrada no preview do checkout,
+        // ver utils/installments.ts; o valor real de fee/netAmount ainda é
+        // recalculado com a bandeira real depois que a Zendry responde).
+        const installments = card.installments || 1;
+        const feeTable = seller.feeTable || DEFAULT_FEE_TABLE;
+        const feePct = feeTable.cardFees.standard[String(installments)] ?? feeTable.cardFees.standard["1"] ?? 0;
+        amount = round(discountedBase / (1 - feePct / 100));
+      } else {
+        amount = discountedBase;
+      }
     } else {
       if (!checkout.paymentMethods.pix.enabled) {
         res.status(400).json({ status: false, msg: "Pix indisponível para este checkout." });
