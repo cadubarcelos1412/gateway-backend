@@ -94,7 +94,15 @@ export class TransactionService {
     }
 
     if (customer.document === seller.documentNumber) {
-      throw new Error("Comprador não pode ser o mesmo que o vendedor.");
+      // code anexado pro caller (API pública /v1/payments) conseguir mapear
+      // pra um código de erro específico em vez do genérico
+      // "payment_creation_failed" — permite integradores tratarem esse caso
+      // com uma mensagem própria em vez de mostrar o erro cru pro comprador.
+      const err = new Error(
+        "O CPF/CNPJ do comprador é o mesmo cadastrado como vendedor nesta loja. Use um documento diferente para continuar."
+      );
+      (err as Error & { code?: string }).code = "self_payment_not_allowed";
+      throw err;
     }
 
     const product = productId ? await Product.findById(productId) : null;
@@ -424,7 +432,9 @@ export class TransactionService {
     return this.createTransactionCore({
       seller,
       session,
-      input: parsed.data,
+      // "source" identifica a origem na tela de vendas — este fluxo é
+      // sempre criado pelo próprio seller autenticado no dashboard.
+      input: { ...parsed.data, metadata: { source: "dashboard" } },
       ip,
       userAgent,
       mode: "live",

@@ -41,7 +41,9 @@ export const createPayment = async (req: ApiKeyRequest, res: Response): Promise<
     description: body.description,
     idempotencyKey: typeof idempotencyKeyHeader === "string" ? idempotencyKeyHeader : undefined,
     customer: body.customer,
-    metadata: body.metadata,
+    // "source" identifica a origem na tela de vendas do seller — sempre
+    // "api" aqui, nunca sobrescrevível pelo metadata que o integrador manda.
+    metadata: { ...body.metadata, source: "api" },
     card: body.card
       ? {
           number: body.card.number,
@@ -72,7 +74,15 @@ export const createPayment = async (req: ApiKeyRequest, res: Response): Promise<
   } catch (error) {
     await session.abortTransaction();
     console.error("❌ Erro em createPayment (/v1/payments):", error);
-    sendApiError(res, 400, "invalid_request_error", "payment_creation_failed", (error as Error).message || "Erro ao criar pagamento.");
+    const knownCode = (error as Error & { code?: string }).code;
+    sendApiError(
+      res,
+      400,
+      "invalid_request_error",
+      knownCode || "payment_creation_failed",
+      (error as Error).message || "Erro ao criar pagamento.",
+      knownCode === "self_payment_not_allowed" ? "customer.document" : undefined
+    );
   } finally {
     session.endSession();
   }

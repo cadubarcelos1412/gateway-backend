@@ -212,8 +212,15 @@ export const payCheckout: RequestHandler = async (req, res) => {
           idempotencyKey,
           // Metadata do cliente (ex.: endereço coletado no checkout) é
           // mesclada, mas as chaves de controle abaixo nunca são
-          // sobrescritáveis por ele.
-          metadata: { ...metadata, checkoutId, orderBump: bumpSelected, source: "public_checkout" },
+          // sobrescritáveis por ele. "source" distingue link de pagamento
+          // rápido (checkout com slug) de checkout normal — usado na tela
+          // de vendas pra mostrar a origem de cada transação.
+          metadata: {
+            ...metadata,
+            checkoutId,
+            orderBump: bumpSelected,
+            source: checkout.slug ? "payment_link" : "checkout",
+          },
         },
         ip,
         userAgent,
