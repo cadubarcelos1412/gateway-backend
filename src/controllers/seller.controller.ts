@@ -4,9 +4,24 @@ import { decodeToken } from "../config/auth";
 import { User } from "../models/user.model";
 import { Seller } from "../models/seller.model";
 import { Subaccount } from "../models/subaccount.model";
+import { Transaction } from "../models/transaction.model";
 import { ACQUIRER_KEYS } from "../acquirers";
 import { getOrCreateDefaultFeeConfig } from "../models/systemFeeConfig.model";
 import { SplitRule } from "../models/splitRule.model";
+
+/**
+ * Agrega vendas/receita (só transações "deposit" aprovadas) por userId —
+ * usado tanto na listagem quanto no perfil individual do seller, pra
+ * "Vendas"/"Receita" pararem de vir sempre zerado (o campo nunca foi
+ * calculado, só existia no tipo do frontend).
+ */
+async function getSellerStatsByUserId(userIds: Types.ObjectId[]): Promise<Map<string, { totalSales: number; totalRevenue: number }>> {
+  const rows = await Transaction.aggregate([
+    { $match: { userId: { $in: userIds }, type: "deposit", status: "approved" } },
+    { $group: { _id: "$userId", totalSales: { $sum: 1 }, totalRevenue: { $sum: "$amount" } } },
+  ]);
+  return new Map(rows.map((r) => [String(r._id), { totalSales: r.totalSales, totalRevenue: r.totalRevenue }]));
+}
 
 /* 🔑 Utilitário – pegar usuário autenticado pelo token */
 const getUserFromToken = async (token?: string) => {
@@ -132,12 +147,19 @@ export const listSellers = async (req: Request, res: Response): Promise<void> =>
       Seller.countDocuments(query)
     ]);
 
+    const statsByUserId = await getSellerStatsByUserId(sellers.map((s) => s.userId));
+    const sellersWithStats = sellers.map((s) => ({
+      ...s,
+      totalSales: statsByUserId.get(String(s.userId))?.totalSales || 0,
+      totalRevenue: statsByUserId.get(String(s.userId))?.totalRevenue || 0,
+    }));
+
     res.status(200).json({
       status: true,
       total,
       page: Number(page),
       totalPages: Math.ceil(total / Number(limit)),
-      sellers
+      sellers: sellersWithStats
     });
   } catch (error) {
     console.error("❌ Erro em listSellers:", error);
@@ -194,7 +216,15 @@ export const getSellerById = async (req: Request, res: Response): Promise<void> 
       return;
     }
 
-    res.status(200).json({ status: true, seller });
+    const statsByUserId = await getSellerStatsByUserId([seller.userId]);
+    const stats = statsByUserId.get(String(seller.userId)) || { totalSales: 0, totalRevenue: 0 };
+
+    const recentTransactions = await Transaction.find({ userId: seller.userId })
+      .sort({ createdAt: -1 })
+      .limit(30)
+      .lean();
+
+    res.status(200).json({ status: true, seller: { ...seller, ...stats }, stats, recentTransactions });
   } catch (error) {
     console.error("❌ Erro em getSellerById:", error);
     res.status(500).json({ status: false, msg: "Erro interno ao buscar seller." });
