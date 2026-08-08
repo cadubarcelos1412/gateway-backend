@@ -211,7 +211,7 @@ export class TransactionService {
         description: err?.message || "Erro desconhecido",
         riskLevel,
       });
-      throw new Error("Erro ao criar transação na adquirente.");
+      throw new Error("Não foi possível gerar o pagamento agora. Tente novamente em alguns instantes.");
     }
 
     // 💳 Taxa calculada aqui (depois da adquirente responder) porque cartão só

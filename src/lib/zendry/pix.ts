@@ -1,4 +1,4 @@
-import { zendryFetch } from "./client";
+import { zendryFetchWithRetry } from "./client";
 import type { CreatePixInput, CreatePixResult } from "./types";
 
 // Pix embutido na própria página (QR Code + copia-e-cola) — POST /v1/pix/qrcodes.
@@ -16,7 +16,9 @@ import type { CreatePixInput, CreatePixResult } from "./types";
 // Não existe campo `callback_url` nesse payload — o destino do webhook é
 // configurado à parte (ver webhook.ts e ZENDRY-MIGRATION.md, seção Webhooks).
 export async function createPix(input: CreatePixInput): Promise<CreatePixResult> {
-  const { qrcode } = await zendryFetch<{
+  // Retenta 1x em falha 5xx transitória da Zendry (ver client.ts) — gerar
+  // QR Code de novo é seguro, nada é cobrado até o comprador pagar.
+  const { qrcode } = await zendryFetchWithRetry<{
     qrcode: { reference_code: string; content: string; image_base64: string };
   }>("/v1/pix/qrcodes", {
     method: "POST",

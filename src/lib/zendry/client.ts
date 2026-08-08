@@ -79,8 +79,34 @@ export async function zendryFetch<T>(
 
   if (!res.ok) {
     const errorBody = await res.text().catch(() => "");
-    throw new Error(`Zendry ${init.method} ${path} falhou (${res.status}): ${errorBody}`);
+    const err = new Error(`Zendry ${init.method} ${path} falhou (${res.status}): ${errorBody}`);
+    (err as Error & { status?: number }).status = res.status;
+    throw err;
   }
 
   return res.json() as Promise<T>;
+}
+
+/**
+ * Retry pra falha transitória (5xx) da Zendry — a própria API já orienta
+ * "please try again" nesse caso. NÃO retenta em 4xx (erro de payload/negócio,
+ * tentar de novo não muda o resultado). Só use em chamadas idempotentes ou
+ * onde reenviar não arrisca duplicar efeito colateral (ex.: gerar QR Code Pix
+ * de novo é seguro — nada é cobrado até o comprador escanear e pagar).
+ */
+export async function zendryFetchWithRetry<T>(
+  path: string,
+  init: { method: "GET" | "POST"; body?: unknown },
+  retries = 1
+): Promise<T> {
+  try {
+    return await zendryFetch<T>(path, init);
+  } catch (err) {
+    const status = (err as Error & { status?: number }).status;
+    if (retries > 0 && status !== undefined && status >= 500) {
+      await new Promise((resolve) => setTimeout(resolve, 800));
+      return zendryFetchWithRetry<T>(path, init, retries - 1);
+    }
+    throw err;
+  }
 }
