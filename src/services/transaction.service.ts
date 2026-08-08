@@ -153,6 +153,22 @@ export class TransactionService {
     /* ---------------------------------------------------------------- */
     /* 💳 Modo live — fluxo real (idêntico ao comportamento anterior)    */
     /* ---------------------------------------------------------------- */
+
+    // 🪪 KYC — seller sem verificação aprovada não pode mover dinheiro real.
+    // O checkout público já tinha essa trava (resolveCheckoutContext), mas
+    // aqui é o núcleo compartilhado por TODOS os caminhos de pagamento live
+    // (checkout, API pública /v1/payments e o fluxo legado do dashboard) —
+    // sem ela, um seller que nunca envia nenhum documento de KYC ainda
+    // conseguia processar pagamento real via API ou dashboard, só o link de
+    // checkout público estava travado.
+    if (seller.kycStatus !== "approved" && seller.kycStatus !== "active") {
+      const err = new Error(
+        `Pagamento indisponível: verificação de identidade do vendedor com status '${seller.kycStatus}'. Complete o envio dos documentos de KYC para operar.`
+      );
+      (err as Error & { code?: string }).code = "kyc_not_approved";
+      throw err;
+    }
+
     const wallet = await Wallet.findOne({ userId: seller.userId });
     if (!wallet) throw new Error("Carteira não encontrada.");
 

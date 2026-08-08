@@ -38,6 +38,7 @@ Toda resposta de erro da API segue o mesmo formato:
 | `invalid_payload` | invalid_request_error | Corpo da requisição não passou na validação (Zod). |
 | `payment_creation_failed` | invalid_request_error | Falha ao criar o pagamento — inclui recusas da adquirente em modo live. |
 | `self_payment_not_allowed` | invalid_request_error | `customer.document` é o mesmo CPF/CNPJ cadastrado como vendedor da conta — pagamento pra si mesmo não é permitido. |
+| `kyc_not_approved` | invalid_request_error | O seller ainda não teve a verificação de identidade (KYC) aprovada — precisa enviar os documentos e aguardar aprovação antes de processar pagamentos reais. |
 | `wrong_mode` | invalid_request_error | Tentou simular pagamento (`/test/payments/...`) usando uma chave `live`. |
 | `invalid_status_transition` | invalid_request_error | Tentou simular um pagamento que não está mais `pending` (já foi pago/falhou). |
 | `idempotency_key_reused` | invalid_request_error | Mesma `Idempotency-Key` usada com um payload diferente. |
