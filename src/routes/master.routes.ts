@@ -11,6 +11,7 @@ import {
   updateDefaultFees,
   listAllSplitRules,
   reconcileZendryPix,
+  requireMasterMiddleware,
 } from "../controllers/master.controller";
 import { cacheMiddleware } from "../middleware/cache";
 
@@ -31,8 +32,11 @@ router.post("/validate", validateMasterToken);
 /**
  * 📈 GET /api/master/kpas
  * Retorna KPIs do sistema
+ * ⚠️ Auth ANTES do cache: cacheMiddleware serve por URL sem checar nada, se
+ * a auth só existisse dentro do controller uma requisição sem token nenhum
+ * ainda receberia dados de um cache já aquecido por outra requisição.
  */
-router.get("/kpas", cacheMiddleware(30), getKpas);
+router.get("/kpas", requireMasterMiddleware, cacheMiddleware(30), getKpas);
 
 /**
  * 📊 POST /api/master/analytics
@@ -44,19 +48,19 @@ router.post("/analytics", getAnalytics);
  * 🏆 GET /api/master/top-products
  * Top 10 produtos mais vendidos
  */
-router.get("/top-products", cacheMiddleware(60), getMostSaleProducts);
+router.get("/top-products", requireMasterMiddleware, cacheMiddleware(60), getMostSaleProducts);
 
 /**
  * 📋 GET /api/master/transactions?limit=&status=
  * Lista as transações mais recentes da plataforma
  */
-router.get("/transactions", listTransactions);
+router.get("/transactions", requireMasterMiddleware, listTransactions);
 
 /**
  * 🏦 GET /api/master/acquirers
  * Lista as adquirentes existentes no código, status de configuração e sellers atribuídos
  */
-router.get("/acquirers", listAcquirers);
+router.get("/acquirers", requireMasterMiddleware, listAcquirers);
 
 /**
  * 💳 GET/PUT /api/master/fees/default

@@ -1,4 +1,4 @@
-import { Request, Response } from "express";
+import { Request, Response, NextFunction } from "express";
 import { Transaction } from "../models/transaction.model";
 import { User } from "../models/user.model";
 import { Seller } from "../models/seller.model";
@@ -41,6 +41,23 @@ const requireMasterUser = async (req: Request, res: Response) => {
     res.status(401).json({ status: false, msg: "Token inválido." });
     return null;
   }
+};
+
+/**
+ * 🛡️ Versão middleware de requireMasterUser, pra usar direto na rota.
+ *
+ * Necessário pra rotas com cacheMiddleware (ex.: /kpas, /top-products):
+ * o cache roda ANTES do controller e serve a resposta cacheada pra
+ * qualquer um, sem checar nada — se a auth só existisse dentro do
+ * controller, uma vez o cache aquecido, requisições sem token nenhum
+ * continuariam recebendo os dados normalmente. Rodando a auth como
+ * middleware antes do cache, requisição não autenticada nunca chega
+ * nem a bater no cache.
+ */
+export const requireMasterMiddleware = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  const user = await requireMasterUser(req, res);
+  if (!user) return;
+  next();
 };
 
 /**
