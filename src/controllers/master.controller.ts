@@ -8,24 +8,39 @@ import { getOrCreateDefaultFeeConfig, SystemFeeConfig } from "../models/systemFe
 import { SplitRule } from "../models/splitRule.model";
 import { reconcilePendingZendryPix } from "../services/zendryReconciliation.service";
 
-/* 🔑 Utilitário — pegar usuário autenticado pelo token e exigir role master */
+/**
+ * 🔑 Utilitário — pegar usuário autenticado pelo token e exigir role master.
+ *
+ * Envolto em try/catch: payload.id pode não ser um ObjectId válido (ex.: o
+ * token de bootstrap gerado por generateMasterToken usa id: "master", uma
+ * string literal) — sem isso, User.findById lança um CastError que nunca é
+ * capturado (a função é chamada fora de qualquer try/catch nos callers) e
+ * derruba o processo Node inteiro, tirando a API do ar pra TODOS os sellers,
+ * não só quem fez a requisição inválida.
+ */
 const requireMasterUser = async (req: Request, res: Response) => {
-  const token = req.headers.authorization?.replace("Bearer ", "");
-  if (!token) {
-    res.status(401).json({ status: false, msg: "Token ausente." });
-    return null;
-  }
-  const payload = await decodeToken(token);
-  if (!payload?.id) {
+  try {
+    const token = req.headers.authorization?.replace("Bearer ", "");
+    if (!token) {
+      res.status(401).json({ status: false, msg: "Token ausente." });
+      return null;
+    }
+    const payload = await decodeToken(token);
+    if (!payload?.id) {
+      res.status(401).json({ status: false, msg: "Token inválido." });
+      return null;
+    }
+    const user = await User.findById(payload.id);
+    if (!user || user.role !== "master") {
+      res.status(403).json({ status: false, msg: "Acesso negado. Apenas master." });
+      return null;
+    }
+    return user;
+  } catch (error) {
+    console.error("❌ Erro em requireMasterUser:", error);
     res.status(401).json({ status: false, msg: "Token inválido." });
     return null;
   }
-  const user = await User.findById(payload.id);
-  if (!user || user.role !== "master") {
-    res.status(403).json({ status: false, msg: "Acesso negado. Apenas master." });
-    return null;
-  }
-  return user;
 };
 
 /**
