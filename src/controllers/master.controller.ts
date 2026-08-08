@@ -124,6 +124,104 @@ export const getKpas = async (_req: Request, res: Response): Promise<void> => {
 };
 
 /**
+ * 📊 POST /api/master/analytics
+ * Receita diária (por status), top sellers, comparação mensal e métricas
+ * gerais do período. Endpoint nunca existiu antes — a página Analytics do
+ * painel Master chamava um endpoint fantasma e sempre caía no "sem dados".
+ */
+export const getAnalytics = async (req: Request, res: Response): Promise<void> => {
+  const user = await requireMasterUser(req, res);
+  if (!user) return;
+
+  try {
+    const period = (req.body?.period as string) || "30days";
+    const days = period === "7days" ? 7 : period === "90days" ? 90 : period === "year" ? 365 : 30;
+
+    const since = new Date();
+    since.setDate(since.getDate() - (days - 1));
+    since.setHours(0, 0, 0, 0);
+
+    const transactions = await Transaction.find({ type: "deposit", createdAt: { $gte: since } }).lean();
+
+    // 📅 Receita diária — bucket por dia, separado por status (aprovado/pendente/falhou)
+    const dayMap = new Map<string, { revenue: number; pending: number; failed: number }>();
+    for (let i = days - 1; i >= 0; i--) {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      dayMap.set(d.toISOString().slice(0, 10), { revenue: 0, pending: 0, failed: 0 });
+    }
+    for (const t of transactions) {
+      if (!t.createdAt) continue;
+      const key = new Date(t.createdAt).toISOString().slice(0, 10);
+      const bucket = dayMap.get(key);
+      if (!bucket) continue;
+      if (t.status === "approved") bucket.revenue += t.amount || 0;
+      else if (t.status === "pending") bucket.pending += t.amount || 0;
+      else if (t.status === "failed") bucket.failed += t.amount || 0;
+    }
+    const dailyRevenue = Array.from(dayMap.entries()).map(([date, v]) => ({ date, ...v }));
+
+    // 🏆 Top sellers do período — só vendas aprovadas contam
+    const approvedTx = transactions.filter((t) => t.status === "approved");
+    const sellerTotals = new Map<string, { revenue: number; sales: number }>();
+    for (const t of approvedTx) {
+      const key = String(t.userId);
+      const bucket = sellerTotals.get(key) || { revenue: 0, sales: 0 };
+      bucket.revenue += t.amount || 0;
+      bucket.sales += 1;
+      sellerTotals.set(key, bucket);
+    }
+    const sellerRecords = await Seller.find({ userId: { $in: Array.from(sellerTotals.keys()) } })
+      .select("userId name")
+      .lean();
+    const nameByUserId = new Map(sellerRecords.map((s) => [String(s.userId), s.name]));
+    const topSellers = Array.from(sellerTotals.entries())
+      .map(([userId, v]) => ({ name: nameByUserId.get(userId) || "Seller", revenue: v.revenue, sales: v.sales }))
+      .sort((a, b) => b.revenue - a.revenue)
+      .slice(0, 10);
+
+    // 📆 Comparação mensal — mês corrente vs mês anterior (calendário, não limitado ao período selecionado)
+    const now = new Date();
+    const startCurrentMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const startLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const [currentMonthTx, lastMonthTx] = await Promise.all([
+      Transaction.find({ type: "deposit", status: "approved", createdAt: { $gte: startCurrentMonth } }).lean(),
+      Transaction.find({ type: "deposit", status: "approved", createdAt: { $gte: startLastMonth, $lt: startCurrentMonth } }).lean(),
+    ]);
+
+    const monthlyComparison = {
+      currentMonth: {
+        revenue: currentMonthTx.reduce((s, t) => s + (t.amount || 0), 0),
+        sales: currentMonthTx.length,
+      },
+      lastMonth: {
+        revenue: lastMonthTx.reduce((s, t) => s + (t.amount || 0), 0),
+        sales: lastMonthTx.length,
+      },
+    };
+
+    const conversionRate = transactions.length > 0 ? (approvedTx.length / transactions.length) * 100 : 0;
+    const averageTicket =
+      approvedTx.length > 0 ? approvedTx.reduce((s, t) => s + (t.amount || 0), 0) / approvedTx.length : 0;
+
+    res.status(200).json({
+      status: true,
+      analytics: {
+        dailyRevenue,
+        topSellers,
+        monthlyComparison,
+        conversionRate,
+        averageTicket,
+        totalTransactions: transactions.length,
+      },
+    });
+  } catch (error) {
+    console.error("❌ Erro em getAnalytics:", error);
+    res.status(500).json({ status: false, msg: "Erro interno ao calcular analytics." });
+  }
+};
+
+/**
  * 📋 Lista as transações mais recentes da plataforma (visão admin)
  */
 export const listTransactions = async (req: Request, res: Response): Promise<void> => {

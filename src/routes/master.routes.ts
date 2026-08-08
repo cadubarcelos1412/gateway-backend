@@ -1,6 +1,7 @@
 import { Router } from "express";
 import {
   getKpas,
+  getAnalytics,
   generateMasterToken,
   validateMasterToken,
   getMostSaleProducts,
@@ -32,6 +33,12 @@ router.post("/validate", validateMasterToken);
  * Retorna KPIs do sistema
  */
 router.get("/kpas", cacheMiddleware(30), getKpas);
+
+/**
+ * 📊 POST /api/master/analytics
+ * Receita diária (por status), top sellers e comparação mensal.
+ */
+router.post("/analytics", getAnalytics);
 
 /**
  * 🏆 GET /api/master/top-products
