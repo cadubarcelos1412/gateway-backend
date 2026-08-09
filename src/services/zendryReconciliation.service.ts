@@ -32,6 +32,41 @@ export interface ReconciliationResult {
   errors: { transactionId: string; error: string }[];
 }
 
+// Checagem sob demanda de UMA transação — usada pelo consultTransactionByID,
+// que o front chama a cada 1s enquanto o comprador espera confirmar o Pix na
+// tela de checkout. Diferente da varredura em lote (10min, MIN_AGE_MINUTES de
+// folga), aqui o comprador está literalmente esperando na tela agora, então
+// checa direto, sem esperar idade mínima — só limita a 3 páginas (a
+// transação sendo consultada é sempre recente, deve estar no topo da lista)
+// pra não fazer uma varredura cara a cada segundo. Throttle de quem chama
+// fica por conta do caller (ver lastLiveCheckAt em transaction.controller.ts).
+const SINGLE_CHECK_MAX_PAGES = 3;
+
+export async function checkSingleZendryPix(externalId: string): Promise<{ applied: boolean }> {
+  const token = await getZendryAccessToken();
+
+  for (let page = 1; page <= SINGLE_CHECK_MAX_PAGES; page++) {
+    const res = await fetch(`${ZENDRY_API_BASE}/v1/pix/qrcodes?page=${page}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) break;
+
+    const json = (await res.json()) as { qrcodes?: ZendryQrcode[]; meta?: { total_pages?: number } };
+    const match = (json.qrcodes || []).find((qr) => qr.reference_code === externalId);
+
+    if (match) {
+      const mappedStatus = mapZendryStatus(match.status);
+      if (mappedStatus === "pending") return { applied: false };
+      const result = await applyZendryPaymentStatus(externalId, mappedStatus);
+      return { applied: result.applied };
+    }
+
+    if (page >= (json.meta?.total_pages || 1)) break;
+  }
+
+  return { applied: false };
+}
+
 export async function reconcilePendingZendryPix(): Promise<ReconciliationResult> {
   const cutoff = new Date(Date.now() - MIN_AGE_MINUTES * 60 * 1000);
 

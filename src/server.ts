@@ -14,6 +14,22 @@ import docsRoutes from "./routes/docs.routes";
 import { reconcilePendingZendryPix } from "./services/zendryReconciliation.service";
 
 dotenv.config();
+
+// 🛡️ Rede de segurança — um erro não tratado (ex.: CastError de
+// User.findById com um id que não é ObjectId válido) derrubaria o processo
+// Node inteiro (comportamento padrão desde o Node 15), tirando a API do ar
+// pra TODOS os sellers por causa de UMA requisição malformada. Isso já
+// aconteceu na prática (ver requireMasterUser em master.controller.ts).
+// Só loga e segue — não é solução pros bugs em si (cada um deveria ter seu
+// próprio try/catch), é a última linha de defesa pra eles não derrubarem o
+// servidor inteiro enquanto não são corrigidos um a um.
+process.on("unhandledRejection", (reason) => {
+  console.error("❌ Unhandled promise rejection:", reason);
+});
+process.on("uncaughtException", (error) => {
+  console.error("❌ Uncaught exception:", error);
+});
+
 const app = express();
 
 /* -------------------------------------------------------------------------- */
