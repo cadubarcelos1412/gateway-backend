@@ -12,16 +12,17 @@ interface ZendryQrcode {
 
 /**
  * 🚦 Chave liga/desliga da confirmação Pix ao vivo (decisão de negócio, não
- * técnica — pedido explícito em 2026-08-09: deixar a confirmação com delay
- * de novo até um cliente específico fechar pagamento pelo serviço, depois
- * volta pro instantâneo). Com false, refreshPendingPixIfNeeded vira no-op
- * pra QUALQUER seller — consultTransactionByID e getPayment passam a
- * depender só do reconciliador em lote, que só confirma cada transação
- * depois do seu próprio delay-alvo de 5-10min (ver
- * pixConfirmationDelayMinutes abaixo). Pra reverter: só trocar pra true e
- * dar deploy, nenhum outro código muda.
+ * técnica). Revertido em 2026-08-09: cliente pagou a implementação, então
+ * confirmação volta a ser instantânea de novo (estava com delay proposital
+ * de 5-10min desde 2026-08-09 como alavanca comercial). Com true,
+ * refreshPendingPixIfNeeded volta a checar a Zendry ao vivo (throttlado) em
+ * toda consulta de status — consultTransactionByID e getPayment já chamam
+ * essa função. Se precisar desligar nesse mesmo cenário de novo: só trocar
+ * pra false, nenhum outro código muda (o reconciliador em lote assume como
+ * único mecanismo, com o delay-alvo por transação em
+ * pixConfirmationDelayMinutes abaixo).
  */
-const LIVE_CHECK_ENABLED = false;
+const LIVE_CHECK_ENABLED = true;
 
 /**
  * Rede de segurança pro problema confirmado em 2026-08-06: webhooks da
@@ -29,30 +30,30 @@ const LIVE_CHECK_ENABLED = false;
  * conta/deploy — ver zendryWebhook.controller.ts). Sem isso, um Pix pago de
  * verdade fica "pending" pra sempre no nosso sistema.
  *
- * Busca transações Pix "pending" há mais de MIN_AGE_MINUTES (piso pro delay
- * variável por transação, ver pixConfirmationDelayMinutes abaixo), varre as
- * páginas de /v1/pix/qrcodes da Zendry (o filtro por reference_code nesse
- * endpoint retorna 500 — confirmado, não use) e aplica o status real
- * encontrado.
+ * Busca transações Pix "pending" há mais de MIN_AGE_MINUTES (evita competir
+ * com o webhook/live-check em transações recém-criadas), varre as páginas
+ * de /v1/pix/qrcodes da Zendry (o filtro por reference_code nesse endpoint
+ * retorna 500 — confirmado, não use) e aplica o status real encontrado.
  *
  * Só cobre Pix por enquanto — cartão já tem confirmação síncrona na criação
  * (não depende de webhook pra saber se foi aprovado).
  */
-const MIN_AGE_MINUTES = 5;
+const MIN_AGE_MINUTES = 3;
 const MAX_PAGES = 10;
 
 /**
- * 🚦 Decisão de negócio, não técnica — pedido explícito em 2026-08-09: com
- * LIVE_CHECK_ENABLED=false, quem determina quando um Pix "pending" vira
- * "paid"/"failed" pro nosso sistema é só esta função de reconciliação em
- * lote. Cada transação recebe um delay-alvo aleatório (mas determinístico —
- * mesma transação sempre cai no mesmo valor) entre 5 e 10 minutos, derivado
- * de um hash do próprio id. Isso evita dois problemas de uma janela de
- * corte fixa: (1) todo mundo confirmando exatamente no mesmo instante do
- * relógio, o que pareceria um lote/batch óbvio, e (2) transações "com
- * sorte" que caem logo depois de uma rodada confirmando quase instantâneo.
- * Pra reverter: só trocar LIVE_CHECK_ENABLED pra true (ver acima) — esta
- * função continua existindo como rede de segurança de qualquer forma.
+ * 🚦 Decisão de negócio, não técnica — só entra em jogo quando
+ * LIVE_CHECK_ENABLED=false (ver acima). Nesse modo, quem determina quando
+ * um Pix "pending" vira "paid"/"failed" pro nosso sistema é só a
+ * reconciliação em lote. Cada transação recebe um delay-alvo aleatório
+ * (mas determinístico — mesma transação sempre cai no mesmo valor) entre 5
+ * e 10 minutos, derivado de um hash do próprio id. Isso evita dois
+ * problemas de uma janela de corte fixa: (1) todo mundo confirmando
+ * exatamente no mesmo instante do relógio, o que pareceria um lote/batch
+ * óbvio, e (2) transações "com sorte" que caem logo depois de uma rodada
+ * confirmando quase instantâneo. Com LIVE_CHECK_ENABLED=true, essa função
+ * quase nunca chega a barrar nada de verdade — a transação já foi
+ * confirmada pelo live-check antes de aparecer aqui.
  */
 function pixConfirmationDelayMinutes(transactionId: string): number {
   const hash = crypto.createHash("md5").update(transactionId).digest();

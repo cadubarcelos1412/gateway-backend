@@ -78,13 +78,11 @@ connectDB()
 
     // 🔁 Rede de segurança: webhook da Zendry não confirmado como chegando
     // nesta conta (ver zendryWebhook.controller.ts) — reconcilia Pix
-    // "pending" consultando a Zendry direto. Cada transação só é confirmada
-    // depois de bater seu próprio delay-alvo (5-10min, determinístico por
-    // id — ver pixConfirmationDelayMinutes em zendryReconciliation.service.ts),
-    // então o próprio loop roda a cada 1min só pra ter granularidade fina
-    // em cima desse alvo — não é ele quem decide o delay.
-    // Primeira rodada logo no boot, com atraso pra não brigar com o próprio
-    // startup do processo.
+    // "pending" consultando a Zendry direto. Com o live-check ligado (ver
+    // LIVE_CHECK_ENABLED em zendryReconciliation.service.ts), isso é só
+    // backup pra sessões abandonadas/sem polling ativo, então roda a cada
+    // 10min. Primeira rodada logo no boot, com atraso pra não brigar com o
+    // próprio startup do processo.
     const runReconciliation = () => {
       reconcilePendingZendryPix()
         .then((r) => {
@@ -94,10 +92,10 @@ connectDB()
         })
         .catch((err) => console.error("❌ Erro na reconciliação periódica de Pix:", err));
     };
-    const ONE_MINUTE = 60 * 1000;
+    const TEN_MINUTES = 10 * 60 * 1000;
     setTimeout(() => {
       runReconciliation();
-      setInterval(runReconciliation, ONE_MINUTE);
+      setInterval(runReconciliation, TEN_MINUTES);
     }, 30_000);
   })
   .catch((err) => {
