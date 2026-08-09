@@ -1,3 +1,4 @@
+import crypto from "crypto";
 import { Transaction } from "../models/transaction.model";
 import { Seller } from "../models/seller.model";
 import { getZendryAccessToken, ZENDRY_API_BASE } from "../lib/zendry/client";
@@ -10,21 +11,54 @@ interface ZendryQrcode {
 }
 
 /**
+ * 🚦 Chave liga/desliga da confirmação Pix ao vivo (decisão de negócio, não
+ * técnica — pedido explícito em 2026-08-09: deixar a confirmação com delay
+ * de novo até um cliente específico fechar pagamento pelo serviço, depois
+ * volta pro instantâneo). Com false, refreshPendingPixIfNeeded vira no-op
+ * pra QUALQUER seller — consultTransactionByID e getPayment passam a
+ * depender só do reconciliador em lote, que só confirma cada transação
+ * depois do seu próprio delay-alvo de 5-10min (ver
+ * pixConfirmationDelayMinutes abaixo). Pra reverter: só trocar pra true e
+ * dar deploy, nenhum outro código muda.
+ */
+const LIVE_CHECK_ENABLED = false;
+
+/**
  * Rede de segurança pro problema confirmado em 2026-08-06: webhooks da
  * Zendry não chegam (URL de callback nunca foi (re)configurada pra essa
  * conta/deploy — ver zendryWebhook.controller.ts). Sem isso, um Pix pago de
  * verdade fica "pending" pra sempre no nosso sistema.
  *
- * Busca transações Pix "pending" há mais de MIN_AGE_MINUTES (evita competir
- * com o webhook em transações recém-criadas), varre as páginas de
- * /v1/pix/qrcodes da Zendry (o filtro por reference_code nesse endpoint
- * retorna 500 — confirmado, não use) e aplica o status real encontrado.
+ * Busca transações Pix "pending" há mais de MIN_AGE_MINUTES (piso pro delay
+ * variável por transação, ver pixConfirmationDelayMinutes abaixo), varre as
+ * páginas de /v1/pix/qrcodes da Zendry (o filtro por reference_code nesse
+ * endpoint retorna 500 — confirmado, não use) e aplica o status real
+ * encontrado.
  *
  * Só cobre Pix por enquanto — cartão já tem confirmação síncrona na criação
  * (não depende de webhook pra saber se foi aprovado).
  */
-const MIN_AGE_MINUTES = 3;
+const MIN_AGE_MINUTES = 5;
 const MAX_PAGES = 10;
+
+/**
+ * 🚦 Decisão de negócio, não técnica — pedido explícito em 2026-08-09: com
+ * LIVE_CHECK_ENABLED=false, quem determina quando um Pix "pending" vira
+ * "paid"/"failed" pro nosso sistema é só esta função de reconciliação em
+ * lote. Cada transação recebe um delay-alvo aleatório (mas determinístico —
+ * mesma transação sempre cai no mesmo valor) entre 5 e 10 minutos, derivado
+ * de um hash do próprio id. Isso evita dois problemas de uma janela de
+ * corte fixa: (1) todo mundo confirmando exatamente no mesmo instante do
+ * relógio, o que pareceria um lote/batch óbvio, e (2) transações "com
+ * sorte" que caem logo depois de uma rodada confirmando quase instantâneo.
+ * Pra reverter: só trocar LIVE_CHECK_ENABLED pra true (ver acima) — esta
+ * função continua existindo como rede de segurança de qualquer forma.
+ */
+function pixConfirmationDelayMinutes(transactionId: string): number {
+  const hash = crypto.createHash("md5").update(transactionId).digest();
+  const fraction = hash.readUInt32BE(0) / 0xffffffff; // 0..1, determinístico por id
+  return 5 + fraction * 5; // 5.0 a 10.0 minutos
+}
 
 export interface ReconciliationResult {
   checked: number;
@@ -34,8 +68,9 @@ export interface ReconciliationResult {
 
 // Checagem sob demanda de UMA transação — usada pelo consultTransactionByID,
 // que o front chama a cada 1s enquanto o comprador espera confirmar o Pix na
-// tela de checkout. Diferente da varredura em lote (10min, MIN_AGE_MINUTES de
-// folga), aqui o comprador está literalmente esperando na tela agora, então
+// tela de checkout. Diferente da varredura em lote (que respeita o
+// delay-alvo de cada transação, ver pixConfirmationDelayMinutes), aqui o
+// comprador está literalmente esperando na tela agora, então
 // checa direto, sem esperar idade mínima — só limita a 3 páginas (a
 // transação sendo consultada é sempre recente, deve estar no topo da lista)
 // pra não fazer uma varredura cara a cada segundo. Throttle de quem chama
@@ -89,6 +124,7 @@ interface PixLikeTransaction {
  * a transação do banco antes de responder.
  */
 export async function refreshPendingPixIfNeeded(transaction: PixLikeTransaction): Promise<boolean> {
+  if (!LIVE_CHECK_ENABLED) return false;
   if (transaction.status !== "pending" || transaction.method !== "pix" || transaction.mode !== "live" || !transaction.externalId) {
     return false;
   }
@@ -144,6 +180,12 @@ export async function reconcilePendingZendryPix(): Promise<ReconciliationResult>
 
       const mappedStatus = mapZendryStatus(qr.status);
       if (mappedStatus === "pending") continue; // ainda não resolvido de verdade na Zendry
+
+      const tx = pendingByExternalId.get(qr.reference_code);
+      if (tx) {
+        const ageMinutes = (Date.now() - tx.createdAt.getTime()) / 60_000;
+        if (ageMinutes < pixConfirmationDelayMinutes(String(tx._id))) continue; // ainda não bateu o delay-alvo desta transação — tenta de novo no próximo ciclo
+      }
 
       try {
         const applyResult = await applyZendryPaymentStatus(qr.reference_code, mappedStatus);
