@@ -7,6 +7,7 @@ import { TransactionService, CreateTransactionInput } from "../../services/trans
 import { publicPaymentSchema } from "../../validation/v1/payment.schema";
 import { toPublicPayment } from "../../utils/publicPayment";
 import { fromPublicId } from "../../utils/publicIds";
+import { refreshPendingPixIfNeeded } from "../../services/zendryReconciliation.service";
 
 type ApiErrorType = "invalid_request_error" | "authentication_error" | "card_error" | "api_error";
 
@@ -98,7 +99,7 @@ export const getPayment = async (req: ApiKeyRequest, res: Response): Promise<voi
     return;
   }
 
-  const transaction = await Transaction.findOne({
+  let transaction = await Transaction.findOne({
     _id: rawId,
     userId: req.merchant!.userId,
     mode: req.apiKeyMode,
@@ -107,6 +108,15 @@ export const getPayment = async (req: ApiKeyRequest, res: Response): Promise<voi
   if (!transaction) {
     sendApiError(res, 404, "invalid_request_error", "not_found", "Pagamento não encontrado.");
     return;
+  }
+
+  // ⚡ Integrador consultando status agora (polling do próprio checkout
+  // dele) — checa a Zendry ao vivo em vez de só ler o cache, mesmo
+  // mecanismo usado pelo checkout hospedado por nós.
+  const changed = await refreshPendingPixIfNeeded(transaction);
+  if (changed) {
+    const refreshed = await Transaction.findById(rawId);
+    if (refreshed) transaction = refreshed;
   }
 
   res.status(200).json(toPublicPayment(transaction));

@@ -8,15 +8,7 @@ import { Transaction } from "../models/transaction.model";
 import { Seller } from "../models/seller.model";
 import { dispatchWebhookEvent } from "../services/webhook.service";
 import { toPublicPayment } from "../utils/publicPayment";
-import { checkSingleZendryPix } from "../services/zendryReconciliation.service";
-
-// Throttle da checagem ao vivo por transação — o front consulta esse
-// endpoint a cada 1s enquanto o comprador espera o Pix confirmar (ver
-// CheckoutPublicPage.tsx). Sem isso, cada segundo de espera vira uma
-// chamada pra Zendry. Em memória mesmo: o pior caso é perder o cache num
-// restart do processo e fazer uma checagem a mais, sem problema nenhum.
-const lastLiveCheckAt = new Map<string, number>();
-const LIVE_CHECK_MIN_GAP_MS = 4_000;
+import { refreshPendingPixIfNeeded } from "../services/zendryReconciliation.service";
 
 /* -------------------------------------------------------------------------- */
 /* 📤 Criar transação real – Multiadquirente (Enterprise)                      */
@@ -67,28 +59,10 @@ export const consultTransactionByID = async (req: Request, res: Response): Promi
     // ⚡ Comprador está esperando na tela agora — checa direto na Zendry em
     // vez de esperar o webhook (que hoje não chega, ver
     // zendryReconciliation.service.ts) ou o reconciliador em lote (10min).
-    // Throttlado pra não virar uma chamada à Zendry por segundo de espera.
-    if (
-      transaction.status === "pending" &&
-      transaction.method === "pix" &&
-      transaction.mode === "live" &&
-      transaction.externalId
-    ) {
-      const now = Date.now();
-      const last = lastLiveCheckAt.get(String(transaction._id)) || 0;
-      if (now - last >= LIVE_CHECK_MIN_GAP_MS) {
-        lastLiveCheckAt.set(String(transaction._id), now);
-        try {
-          const { applied } = await checkSingleZendryPix(transaction.externalId);
-          if (applied) {
-            const refreshed = await Transaction.findById(id);
-            if (refreshed) transaction = refreshed;
-            lastLiveCheckAt.delete(String(transaction._id)); // resolvida — libera memória
-          }
-        } catch (err) {
-          console.error("⚠️ Falha na checagem ao vivo do Pix (segue com o status em cache):", err);
-        }
-      }
+    const changed = await refreshPendingPixIfNeeded(transaction);
+    if (changed) {
+      const refreshed = await Transaction.findById(id);
+      if (refreshed) transaction = refreshed;
     }
 
     res.status(200).json({ status: true, transaction });

@@ -67,6 +67,48 @@ export async function checkSingleZendryPix(externalId: string): Promise<{ applie
   return { applied: false };
 }
 
+// Throttle compartilhado — qualquer caller que consulte o status de uma
+// transação (checkout hospedado por nós OU a API pública /v1/payments, ver
+// consultTransactionByID e getPayment) passa por aqui em vez de bater na
+// Zendry a cada request. Em memória: pior caso de um restart é uma checagem
+// a mais, sem problema.
+const lastLiveCheckAt = new Map<string, number>();
+const LIVE_CHECK_MIN_GAP_MS = 4_000;
+
+interface PixLikeTransaction {
+  _id: unknown;
+  status: string;
+  method: string;
+  mode: string;
+  externalId?: string | null;
+}
+
+/**
+ * Se a transação for um Pix "pending" em modo live, checa a Zendry ao vivo
+ * (throttlado). Retorna true se o status mudou — quem chama deve recarregar
+ * a transação do banco antes de responder.
+ */
+export async function refreshPendingPixIfNeeded(transaction: PixLikeTransaction): Promise<boolean> {
+  if (transaction.status !== "pending" || transaction.method !== "pix" || transaction.mode !== "live" || !transaction.externalId) {
+    return false;
+  }
+
+  const key = String(transaction._id);
+  const now = Date.now();
+  const last = lastLiveCheckAt.get(key) || 0;
+  if (now - last < LIVE_CHECK_MIN_GAP_MS) return false;
+  lastLiveCheckAt.set(key, now);
+
+  try {
+    const { applied } = await checkSingleZendryPix(transaction.externalId);
+    if (applied) lastLiveCheckAt.delete(key); // resolvida — libera memória
+    return applied;
+  } catch (err) {
+    console.error("⚠️ Falha na checagem ao vivo do Pix (segue com o status em cache):", err);
+    return false;
+  }
+}
+
 export async function reconcilePendingZendryPix(): Promise<ReconciliationResult> {
   const cutoff = new Date(Date.now() - MIN_AGE_MINUTES * 60 * 1000);
 
