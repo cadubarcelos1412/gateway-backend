@@ -120,6 +120,15 @@ export const payCheckout: RequestHandler = async (req, res) => {
       return;
     }
 
+    // 🚨 Mesma defesa do schema público (ver payment.schema.ts) — se vier
+    // dado de cartão mas paymentMethod não é "card", é sinal de bug no
+    // front (campo de método dessincronizado do restante do form) — rejeita
+    // em vez de descartar o cartão silenciosamente e cobrar Pix.
+    if (paymentMethod !== "card" && card) {
+      res.status(400).json({ status: false, msg: "Dados de cartão enviados, mas paymentMethod não é 'card'." });
+      return;
+    }
+
     const method = paymentMethod === "card" ? "card" : "pix";
 
     const result = await resolveCheckoutContext(checkoutId, orderBump);

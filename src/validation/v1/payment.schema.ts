@@ -42,6 +42,18 @@ export const publicPaymentSchema = z
   .refine((data) => data.payment_method !== "card" || !!data.threeds_data, {
     message: "'threeds_data' é obrigatório quando payment_method é 'card' (calculado via SDK 3DS no navegador do comprador).",
     path: ["threeds_data"],
+  })
+  // 🚨 Direção inversa do refine acima — sem isso, um integrador que manda
+  // payment_method:"pix" mas ANEXA dados de cartão (bug comum: campo de
+  // método não atualizado no formulário deles, mas o resto do payload de
+  // cartão sim) tinha o card silenciosamente descartado e a cobrança criada
+  // como Pix — o comprador nunca era cobrado no cartão, e a venda aparecia
+  // errada pro seller. Confirmado em produção em 2026-08-10: 100% das
+  // transações via API sempre foram "pix", nunca "credit_card", em toda a
+  // história do sistema.
+  .refine((data) => data.payment_method === "card" || !data.card, {
+    message: "'card' só pode ser enviado quando payment_method é 'card'. Confira o valor de payment_method no seu integração.",
+    path: ["payment_method"],
   });
 
 export type PublicPaymentInput = z.infer<typeof publicPaymentSchema>;
