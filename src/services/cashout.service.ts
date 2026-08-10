@@ -36,13 +36,20 @@ export class CashoutService {
 
     if (wallet.balance.available < amount) throw new Error("Saldo insuficiente para saque.");
 
-    // ❄️ Congela o valor solicitado
+    // ❄️ Congela o valor solicitado — só isso já impede o seller de gastar
+    // ou sacar de novo o mesmo dinheiro enquanto a solicitação está em
+    // aberto. NÃO empurra pra wallet.balance.unAvailable (bug corrigido em
+    // 2026-08-10): esse array é pra dinheiro de VENDA ainda em retenção,
+    // que uma varredura periódica libera sozinha quando o prazo vence (ver
+    // wallet.service.ts). Empurrar a trava do SAQUE ali, com um timer de 3
+    // dias arbitrário, fazia esse mesmo valor ser creditado de volta
+    // automaticamente 3 dias depois — mesmo já aprovado (dinheiro
+    // realmente enviado) ou já rejeitado (rejectCashout já devolve pra
+    // available na hora, então essa segunda entrada duplicava o crédito).
+    // approveCashout deixa o valor debitado (correto, já saiu de verdade);
+    // rejectCashout já devolve pra available diretamente — nenhum dos dois
+    // precisa de ajuda de uma reserva aqui.
     wallet.balance.available -= amount;
-    wallet.balance.unAvailable.push({
-      amount,
-      availableIn: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000), // 3 dias
-      method: "manual",
-    });
 
     const [cashout] = await CashoutRequest.create(
       [
