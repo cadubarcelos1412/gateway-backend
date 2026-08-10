@@ -49,6 +49,99 @@ export const loginUser = async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
+    // 🚧 2FA em standby (decisão de negócio, 2026-08-10): implementação
+    // pronta e testada abaixo, mas desligada por padrão — precisamos testar
+    // login em contas de clientes reais (sellers) sem depender de pedir o
+    // código de e-mail toda vez pra eles. Sem LOGIN_2FA_ENABLED=true na env,
+    // login volta a emitir token direto, como antes do 2FA existir. O
+    // frontend já trata os dois casos (LoginPage.tsx e RegisterPage.tsx
+    // checam `twoFactorRequired` antes de decidir o que fazer) — pra
+    // reativar: só setar a env var no Render, nenhum código muda.
+    if (process.env.LOGIN_2FA_ENABLED !== "true") {
+      const token = await createToken({ id: String(user._id), role: user.role });
+      res.status(200).json({
+        status: true,
+        msg: "✅ Login realizado com sucesso.",
+        token,
+        user: {
+          _id: user._id,
+          name: user.name,
+          email: user.email,
+          role: user.role,
+          status: user.status,
+        },
+      });
+      return;
+    }
+
+    // 🔐 Segundo fator obrigatório: senha correta só destrava o envio do
+    // código por e-mail — o token só sai depois em verifyLoginCode. Falha no
+    // envio bloqueia o login (fail-closed): não dá pra pular o 2FA.
+    let code: string | null = null;
+    try {
+      code = await createVerificationCode(user._id as mongoose.Types.ObjectId, "login_2fa");
+    } catch (err: any) {
+      // Cooldown de reenvio: já existe um código válido enviado há pouco
+      // (ex.: usuário deu F5 na tela de login); não é uma falha real.
+      if (!/^Aguarde/.test(err?.message || "")) {
+        console.error("❌ Falha ao gerar código de verificação de login:", err);
+        res.status(500).json({
+          status: false,
+          msg: "Não foi possível enviar o código de verificação agora. Tente novamente.",
+        });
+        return;
+      }
+    }
+
+    if (code) {
+      try {
+        await sendVerificationCodeEmail(user.email, code, "login_2fa");
+      } catch (err) {
+        console.error("❌ Falha ao enviar e-mail de verificação de login:", err);
+        res.status(500).json({
+          status: false,
+          msg: "Não foi possível enviar o código de verificação agora. Tente novamente.",
+        });
+        return;
+      }
+    }
+
+    res.status(200).json({
+      status: true,
+      msg: "Enviamos um código de verificação pro seu e-mail.",
+      twoFactorRequired: true,
+      email: user.email,
+    });
+  } catch (err) {
+    console.error("❌ Erro em loginUser:", err);
+    res.status(500).json({ status: false, msg: "Erro interno ao autenticar." });
+  }
+};
+
+/* -------------------------------------------------------
+🔐 0️⃣b Confirma o código 2FA de login e emite o token
+POST /api/users/verify-login-code
+-------------------------------------------------------- */
+export const verifyLoginCode = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { email, code } = req.body;
+    if (!email || !code) {
+      res.status(400).json({ status: false, msg: "Email e código são obrigatórios." });
+      return;
+    }
+
+    const user = await User.findOne({ email });
+    if (!user) {
+      res.status(400).json({ status: false, msg: "Código inválido ou expirado." });
+      return;
+    }
+
+    const ok = await verifyCode(user._id as mongoose.Types.ObjectId, "login_2fa", code);
+    if (!ok) {
+      res.status(400).json({ status: false, msg: "Código inválido ou expirado." });
+      return;
+    }
+
     const token = await createToken({ id: String(user._id), role: user.role });
 
     res.status(200).json({
@@ -64,8 +157,8 @@ export const loginUser = async (req: Request, res: Response): Promise<void> => {
       },
     });
   } catch (err) {
-    console.error("❌ Erro em loginUser:", err);
-    res.status(500).json({ status: false, msg: "Erro interno ao autenticar." });
+    console.error("❌ Erro em verifyLoginCode:", err);
+    res.status(500).json({ status: false, msg: "Erro interno ao verificar código." });
   }
 };
 
@@ -187,10 +280,13 @@ POST /api/users/resend-code
 export const resendCode = async (req: Request, res: Response): Promise<void> => {
   try {
     const { email, purpose } = req.body as { email?: string; purpose?: VerificationPurpose };
-    const validPurposes: VerificationPurpose[] = ["signup", "password_reset", "pin_reset"];
+    const validPurposes: VerificationPurpose[] = ["signup", "password_reset", "pin_reset", "login_2fa"];
 
     if (!email || !purpose || !validPurposes.includes(purpose)) {
-      res.status(400).json({ status: false, msg: "Email e purpose (signup|password_reset|pin_reset) são obrigatórios." });
+      res.status(400).json({
+        status: false,
+        msg: "Email e purpose (signup|password_reset|pin_reset|login_2fa) são obrigatórios.",
+      });
       return;
     }
 

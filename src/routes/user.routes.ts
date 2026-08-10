@@ -1,6 +1,7 @@
 import { Router } from "express";
 import {
   loginUser,
+  verifyLoginCode,
   registerUser,
   updateSplitFees,
   createAdminUser,
@@ -24,6 +25,13 @@ const router = Router();
  * Acesso: Público
  */
 router.post("/login", loginUser);
+
+/**
+ * 🔐 Confirma o código de verificação de login (2FA) e emite o token
+ * POST /api/users/verify-login-code
+ * Acesso: Público (só avança quem já provou a senha em /login)
+ */
+router.post("/verify-login-code", verifyLoginCode);
 
 /**
  * 🆕 Registra um novo usuário (seller, cliente, etc.)

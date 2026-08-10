@@ -11,6 +11,22 @@ function generateNumericCode(): string {
   return crypto.randomInt(0, 1_000_000).toString().padStart(6, "0");
 }
 
+// Sem 0/O, 1/I/L — caracteres que se confundem visualmente, importante pra
+// um código que o usuário vai digitar de cabeça a partir do e-mail.
+const ALPHANUMERIC_CHARSET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+
+function generateAlphanumericCode(): string {
+  let code = "";
+  for (let i = 0; i < 6; i++) {
+    code += ALPHANUMERIC_CHARSET[crypto.randomInt(0, ALPHANUMERIC_CHARSET.length)];
+  }
+  return code;
+}
+
+function generateCode(purpose: VerificationPurpose): string {
+  return purpose === "login_2fa" ? generateAlphanumericCode() : generateNumericCode();
+}
+
 /**
  * Gera um código de 6 dígitos, salva só o HASH, e devolve o código em texto
  * puro (existe só nesta chamada — quem chama manda por e-mail na hora e
@@ -28,7 +44,7 @@ export async function createVerificationCode(
     throw new Error(`Aguarde ${waitSeconds}s antes de pedir um novo código.`);
   }
 
-  const code = generateNumericCode();
+  const code = generateCode(purpose);
   const codeHash = await bcrypt.hash(code, 10);
 
   await VerificationCode.create({
@@ -61,7 +77,7 @@ export async function verifyCode(
   if (record.expiresAt.getTime() < Date.now()) return false;
   if (record.attempts >= MAX_ATTEMPTS) return false;
 
-  const matches = await bcrypt.compare(submittedCode, record.codeHash);
+  const matches = await bcrypt.compare(submittedCode.trim().toUpperCase(), record.codeHash);
   if (!matches) {
     record.attempts += 1;
     await record.save();

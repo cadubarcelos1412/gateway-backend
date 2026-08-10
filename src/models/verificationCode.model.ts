@@ -1,6 +1,6 @@
 import mongoose, { Schema, Document, Types } from "mongoose";
 
-export type VerificationPurpose = "signup" | "password_reset" | "pin_reset";
+export type VerificationPurpose = "signup" | "password_reset" | "pin_reset" | "login_2fa";
 
 /**
  * Código de 6 dígitos enviado por e-mail — mecanismo compartilhado por 3
@@ -20,7 +20,7 @@ export interface IVerificationCode extends Document {
 const VerificationCodeSchema = new Schema<IVerificationCode>(
   {
     userId: { type: Schema.Types.ObjectId, ref: "User", required: true, index: true },
-    purpose: { type: String, enum: ["signup", "password_reset", "pin_reset"], required: true },
+    purpose: { type: String, enum: ["signup", "password_reset", "pin_reset", "login_2fa"], required: true },
     codeHash: { type: String, required: true },
     expiresAt: { type: Date, required: true },
     consumedAt: { type: Date },
