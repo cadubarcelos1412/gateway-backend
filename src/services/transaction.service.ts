@@ -20,8 +20,6 @@ import { TransactionAuditService } from "./transactionAudit.service";
 import { resolveAcquirer } from "../acquirers";
 import { CreateTransactionDTO, CreateTransactionResult, PaymentMethod } from "../acquirers/types";
 
-// 🧾 Importa serviço contábil (ledger dupla-entrada)
-import { postLedgerEntries } from "./ledger/ledger.service";
 import { dispatchWebhookEvent } from "./webhook.service";
 import { toPublicPayment } from "../utils/publicPayment";
 
@@ -262,7 +260,7 @@ export class TransactionService {
     }
     const netAmount = round(amount - fee);
 
-    const { retentionAmount, availableIn } = await RetentionEngine.calculate({
+    const { retentionAmount, days: retentionDays } = await RetentionEngine.calculate({
       method,
       netAmount,
       riskLevel,
@@ -272,18 +270,27 @@ export class TransactionService {
       settlementDaysOverride: method === "credit_card" ? feeTable?.settlementDays : undefined,
     });
 
-    // 🤝 Split de pagamentos — parcerias ativas do seller pagador. O corte de
-    // cada uma sai do netAmount; a retenção por risco continua incidindo só
-    // sobre a parte que fica com o seller pagador (o risco avaliado é dele).
+    // 🤝 Split de pagamentos — parcerias ativas do seller pagador. Só
+    // registrado aqui (em metadata.splits) — o crédito de verdade pro
+    // seller e pros parceiros só acontece quando a transação é
+    // CONFIRMADA (ver applyZendryPaymentStatus), nunca nesta criação.
     const splitRules = await SplitRule.find({ payingSellerId: seller._id, status: "active" }).session(session);
     const splitAllocations = splitRules.map((rule) => ({
       recipientSellerId: rule.recipientSellerId as Types.ObjectId,
       percentage: rule.percentage,
       amount: round(netAmount * (rule.percentage / 100)),
     }));
-    const totalSplitAmount = round(splitAllocations.reduce((sum, a) => sum + a.amount, 0));
-    const sellerShare = round(netAmount - totalSplitAmount);
 
+    // 🚨 Crédito em wallet/ledger acontece SÓ quando a transação é de fato
+    // aprovada (ver applyZendryPaymentStatus, ramo newlyApproved) — nunca
+    // aqui na criação. Corrigido em 2026-08-10: até essa data, toda
+    // transação "pending" (Pix gerado mas nunca pago, ex.: comprador
+    // abandonou o checkout) já entrava direto em wallet.balance.unAvailable
+    // como se o dinheiro já tivesse sido recebido — e como Pix é D+0
+    // (ver RetentionEngine), a liberação automática de saldo (ver
+    // wallet.service.ts) fazia esse valor virar saldo DISPONÍVEL/SACÁVEL em
+    // minutos, mesmo sem o comprador ter pago nada. Achado com R$10.440,11
+    // de saldo fantasma em produção — ver scripts/check-wallet-vs-approved-all.mjs.
     const [tx] = await Transaction.create(
       [
         {
@@ -293,6 +300,7 @@ export class TransactionService {
           fee,
           netAmount,
           retention: retentionAmount,
+          retentionDays,
           type: "deposit",
           method,
           status: "pending",
@@ -314,92 +322,10 @@ export class TransactionService {
       { session }
     );
 
-    try {
-      await postLedgerEntries(
-        [
-          { account: "contas_a_receber_adquirente", type: "debit", amount },
-          { account: "passivo_seller", type: "credit", amount: sellerShare },
-          ...splitAllocations.map((a) => ({
-            account: "passivo_seller",
-            type: "credit" as const,
-            amount: a.amount,
-            sellerId: a.recipientSellerId.toString(),
-          })),
-          { account: "receita_taxa_kissa", type: "credit", amount: fee },
-        ],
-        {
-          idempotencyKey: `txn:${(tx._id as Types.ObjectId).toString()}`,
-          transactionId: (tx._id as Types.ObjectId).toString(),
-          sellerId: (seller._id as Types.ObjectId).toString(),
-          source: { system: "transactions", acquirer: acquirerKey, ip },
-          eventAt: tx.createdAt,
-        },
-        session
-      );
-    } catch (ledgerErr) {
-      console.error("❌ Erro ao registrar lançamentos contábeis:", ledgerErr);
-      throw new Error("Erro ao registrar lançamentos contábeis (ledger).");
-    }
-
-    // 🤝 Créditos das parcerias de split — cada recipient recebe direto na
-    // própria carteira, sem a retenção por risco (que é sobre o perfil do
-    // seller pagador, não do parceiro).
-    if (splitAllocations.length > 0) {
-      const recipientSellers = await Seller.find({
-        _id: { $in: splitAllocations.map((a) => a.recipientSellerId) },
-      }).session(session);
-      const sellerIdToUserId = new Map(recipientSellers.map((s) => [String(s._id), s.userId]));
-
-      for (const allocation of splitAllocations) {
-        const recipientUserId = sellerIdToUserId.get(String(allocation.recipientSellerId));
-        if (!recipientUserId) continue; // segurança — não deveria acontecer, regra já valida na criação
-
-        const recipientWallet = await Wallet.findOne({ userId: recipientUserId }).session(session);
-        if (!recipientWallet) continue;
-
-        recipientWallet.balance.unAvailable.push({
-          amount: allocation.amount,
-          availableIn,
-          originTransactionId: tx._id as Types.ObjectId,
-          method: method === "credit_card" ? "card" : method === "boleto" ? "bill" : "pix",
-        });
-        recipientWallet.log.push({
-          transactionId: tx._id as Types.ObjectId,
-          type: "topup",
-          method: method === "credit_card" ? "card" : method === "boleto" ? "bill" : "pix",
-          amount: allocation.amount,
-          security: { createdAt: new Date(), ipAddress: ip, userAgent, riskFlags: [] },
-        });
-        await recipientWallet.save({ session });
-      }
-    }
-
-    wallet.balance.unAvailable.push({
-      amount: sellerShare - retentionAmount,
-      availableIn,
-      originTransactionId: tx._id as Types.ObjectId,
-      method: method === "credit_card" ? "card" : method === "boleto" ? "bill" : "pix",
-    });
-
-    wallet.log.push({
-      transactionId: tx._id as Types.ObjectId,
-      type: "topup",
-      method: method === "credit_card" ? "card" : method === "boleto" ? "bill" : "pix",
-      amount: sellerShare - retentionAmount,
-      security: {
-        createdAt: new Date(),
-        ipAddress: ip,
-        userAgent,
-        riskFlags,
-      },
-    });
-
-    const savePromises: Promise<unknown>[] = [wallet.save({ session })];
     if (product) {
       product.sales.pending += 1;
-      savePromises.push(product.save({ session }));
+      await product.save({ session });
     }
-    await Promise.all(savePromises);
 
     await TransactionAuditService.log({
       transactionId: tx._id as Types.ObjectId,
@@ -416,7 +342,7 @@ export class TransactionService {
       description: "Transação criada e aguardando aprovação.",
       riskLevel,
       retentionAmount,
-      retentionDays: Math.round((availableIn.getTime() - Date.now()) / (1000 * 60 * 60 * 24)),
+      retentionDays,
     });
 
     void dispatchWebhookEvent(String(seller._id), "payment.created", toPublicPayment(tx));

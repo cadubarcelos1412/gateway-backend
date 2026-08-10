@@ -21,11 +21,17 @@ export interface ITransaction extends Document {
   fee: number;
   netAmount: number;
   retention: number;
+  /** Dias de retenção calculados na criação (RetentionEngine) — usado pra montar availableIn
+   * SÓ quando a transação é de fato aprovada (ver applyZendryPaymentStatus). Pix é sempre 0. */
+  retentionDays: number;
   type: "deposit" | "withdraw";
   method: "pix" | "credit_card" | "boleto";
   status: "pending" | "approved" | "failed" | "refunded";
   /** Marcado quando o ledger/wallet já foram revertidos (falha pós-reserva ou estorno) — evita reversão duplicada. */
   reversedAt?: Date;
+  /** Marcado quando o ledger/wallet já foram creditados de verdade (ver applyZendryPaymentStatus) —
+   * evita creditar duas vezes se o status "approved" for aplicado mais de uma vez. */
+  creditedAt?: Date;
   refund?: {
     reason?: string;
     refundedAt: Date;
@@ -76,6 +82,7 @@ const TransactionSchema = new Schema<ITransaction>(
     fee: { type: Number, required: true },
     netAmount: { type: Number, required: true },
     retention: { type: Number, required: true },
+    retentionDays: { type: Number, required: true, default: 0 },
 
     type: {
       type: String,
@@ -98,6 +105,7 @@ const TransactionSchema = new Schema<ITransaction>(
     },
 
     reversedAt: { type: Date },
+    creditedAt: { type: Date },
     refund: {
       reason: { type: String, trim: true, maxlength: 500 },
       refundedAt: { type: Date },

@@ -81,6 +81,14 @@ export async function reverseTransactionLedgerAndWallet(
 ): Promise<void> {
   if (transaction.mode !== "live") return; // modo teste nunca tocou ledger/wallet
   if (transaction.reversedAt) return; // já revertida — evita dupla reversão
+  // Desde 2026-08-10, o crédito só acontece na CONFIRMAÇÃO (ver
+  // zendryPaymentStatus.service.ts), não mais na criação — uma transação que
+  // vai direto de "pending" pra "failed"/"cancelled" sem nunca ter sido
+  // aprovada nunca chegou a creditar nada, então não há o que reverter. Sem
+  // essa guarda, debitWalletForTransaction cairia no fallback de debitar
+  // `available` sem achar a reserva (que nunca existiu), tirando dinheiro de
+  // outra transação por engano.
+  if (!transaction.creditedAt) return;
 
   const txId = transaction._id as Types.ObjectId;
   const splitAllocations = ((transaction.metadata as any)?.splits || []) as SplitAllocation[];
