@@ -1,7 +1,13 @@
 import { Request, Response } from "express";
 import { Wallet } from "../models/wallet.model";
 import { decodeToken } from "../config/auth";
+import { releaseMaturedBalance } from "../services/wallet.service";
 
+/**
+ * Endpoint manual — mantido por compatibilidade, mas não é mais o único
+ * jeito de liberar saldo maduro (ver getMyWallet em me.controller.ts, que
+ * libera na leitura, e a varredura periódica em server.ts).
+ */
 export const releaseBalance = async (req: Request, res: Response): Promise<void> => {
   try {
     const token = req.headers.authorization;
@@ -22,22 +28,7 @@ export const releaseBalance = async (req: Request, res: Response): Promise<void>
       return;
     }
 
-    const now = new Date();
-    let releasedAmount = 0;
-
-    // ✅ Filtra os valores já liberados
-    const stillLocked = [];
-    for (const entry of wallet.balance.unAvailable) {
-      if (entry.availableIn <= now) {
-        wallet.balance.available += entry.amount;
-        releasedAmount += entry.amount;
-      } else {
-        stillLocked.push(entry);
-      }
-    }
-
-    wallet.balance.unAvailable = stillLocked;
-    await wallet.save();
+    const releasedAmount = await releaseMaturedBalance(wallet);
 
     res.status(200).json({
       status: true,

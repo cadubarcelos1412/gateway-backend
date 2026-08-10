@@ -10,6 +10,7 @@ import { Seller } from "../models/seller.model";
 import { getOrCreateDefaultFeeConfig } from "../models/systemFeeConfig.model";
 import { AnticipationService } from "../services/anticipation.service";
 import { AnticipationTier } from "../models/anticipationRequest.model";
+import { releaseMaturedBalance } from "../services/wallet.service";
 
 /**
  * 🔐 Extrai e valida o id do usuário logado a partir do Bearer token.
@@ -59,11 +60,17 @@ export const getMyWallet = async (req: Request, res: Response): Promise<void> =>
   if (!userId) return;
 
   try {
-    const wallet = await Wallet.findOne({ userId }).lean();
+    const wallet = await Wallet.findOne({ userId });
     if (!wallet) {
       res.status(404).json({ status: false, msg: "Carteira não encontrada." });
       return;
     }
+
+    // Libera na leitura qualquer reserva cujo prazo já passou — sem isso, o
+    // saldo fica preso pra sempre, já que nada mais chama esse release
+    // automaticamente (ver wallet.service.ts).
+    await releaseMaturedBalance(wallet);
+
     res.status(200).json({ status: true, wallet });
   } catch (err) {
     console.error("❌ Erro em getMyWallet:", err);

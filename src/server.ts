@@ -12,6 +12,7 @@ import cashoutRoutes from "./routes/cashout.routes";
 import v1Routes from "./routes/v1";
 import docsRoutes from "./routes/docs.routes";
 import { reconcilePendingZendryPix } from "./services/zendryReconciliation.service";
+import { releaseAllMaturedWallets } from "./services/wallet.service";
 
 dotenv.config();
 
@@ -96,6 +97,29 @@ connectDB()
     setTimeout(() => {
       runReconciliation();
       setInterval(runReconciliation, TEN_MINUTES);
+    }, 30_000);
+
+    // 🔁 Rede de segurança: até 2026-08-09, o único jeito de mover saldo de
+    // "reservado" (unAvailable) pra "disponível" quando o prazo vencia era
+    // um endpoint manual (POST /api/release/manual) que NADA no sistema
+    // chamava — dinheiro já maduro (inclusive Pix D+0, que nunca deveria
+    // ficar preso) ficava exibido como bloqueado indefinidamente. Agora
+    // getMyWallet e a criação de cashout já liberam na hora em que são
+    // chamados (ver wallet.service.ts); esta varredura é só backup pra
+    // carteiras que ninguém consultou nesse meio-tempo. A cada 5min.
+    const runWalletRelease = () => {
+      releaseAllMaturedWallets()
+        .then((r) => {
+          if (r.walletsReleased > 0) {
+            console.log(`🔓 Liberação de saldo: ${r.walletsChecked} carteiras verificadas, ${r.walletsReleased} liberadas, R$ ${r.totalReleased.toFixed(2)} no total.`);
+          }
+        })
+        .catch((err) => console.error("❌ Erro na liberação periódica de saldo:", err));
+    };
+    const FIVE_MINUTES = 5 * 60 * 1000;
+    setTimeout(() => {
+      runWalletRelease();
+      setInterval(runWalletRelease, FIVE_MINUTES);
     }, 30_000);
   })
   .catch((err) => {

@@ -7,6 +7,7 @@ import { postLedgerEntries } from "./ledger/ledger.service";
 import { round2 } from "./ledger/helpers";
 import { getUsdtQuote, sendUsdtPayment } from "../lib/zendry/crypto";
 import { DEFAULT_FEE_TABLE } from "../models/feeTable.types";
+import { releaseMaturedBalance } from "./wallet.service";
 
 /**
  * 💸 Serviço de Cashout (Liquidação)
@@ -20,6 +21,11 @@ export class CashoutService {
   static async createCashout(userId: Types.ObjectId, amount: number, session?: ClientSession) {
     const wallet = await Wallet.findOne({ userId });
     if (!wallet) throw new Error("Carteira não encontrada.");
+
+    // Libera reservas já maduras antes de checar saldo — sem isso, dinheiro
+    // que já devia estar disponível (ex.: Pix D+0) aparece preso e o seller
+    // não consegue sacar mesmo já tendo passado do prazo.
+    await releaseMaturedBalance(wallet, session);
 
     if (wallet.balance.available < amount) throw new Error("Saldo insuficiente para saque.");
 
@@ -232,6 +238,7 @@ export class CashoutService {
 
     const wallet = await Wallet.findOne({ userId });
     if (!wallet) throw new Error("Carteira não encontrada.");
+    await releaseMaturedBalance(wallet);
     if (wallet.balance.available < amountBRL) throw new Error("Saldo insuficiente para saque.");
 
     const usdtOut = seller.feeTable?.usdtOut ?? DEFAULT_FEE_TABLE.usdtOut;

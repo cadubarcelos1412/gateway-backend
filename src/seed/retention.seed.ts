@@ -15,12 +15,17 @@ const seedRetentionPolicies = async () => {
       { method: "boleto", riskLevel: "low", percentage: 5, days: 3, description: "Retenção padrão de boletos compensados.", active: true },
 
       // 🟡 Sellers médios (histórico limitado, ticket alto)
-      { method: "pix", riskLevel: "medium", percentage: 10, days: 1, description: "Retenção moderada por risco operacional.", active: true },
+      // days:0 é proposital — Pix liquida D+0 de verdade (Zendry credita na
+      // hora), então nunca fica preso esperando data, mesmo em risco médio/
+      // alto. Só o percentual de retenção por risco vale pra Pix; ver
+      // RetentionEngine.calculate, que trava isso independente do que estiver
+      // aqui.
+      { method: "pix", riskLevel: "medium", percentage: 10, days: 0, description: "Retenção percentual moderada por risco operacional — sem prazo, Pix é D+0.", active: true },
       { method: "credit_card", riskLevel: "medium", percentage: 15, days: 7, description: "Maior retenção para histórico incompleto.", active: true },
       { method: "boleto", riskLevel: "medium", percentage: 15, days: 5, description: "Retenção estendida por risco de chargeback.", active: true },
 
       // 🔴 Sellers de alto risco (novos ou monitorados)
-      { method: "pix", riskLevel: "high", percentage: 20, days: 3, description: "Retenção alta para mitigar fraudes em PIX.", active: true },
+      { method: "pix", riskLevel: "high", percentage: 20, days: 0, description: "Retenção percentual alta pra mitigar fraude — sem prazo, Pix é D+0.", active: true },
       { method: "credit_card", riskLevel: "high", percentage: 30, days: 15, description: "Liquidação estendida por risco elevado de estorno.", active: true },
       { method: "boleto", riskLevel: "high", percentage: 25, days: 10, description: "Retenção reforçada para boletos de alto risco.", active: true },
     ];
