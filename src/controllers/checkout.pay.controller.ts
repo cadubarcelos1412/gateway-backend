@@ -3,6 +3,7 @@ import mongoose from "mongoose";
 import crypto from "crypto";
 import { Checkout, ICheckout } from "../models/checkout.model";
 import { Product, IProduct } from "../models/product.model";
+import { Transaction } from "../models/transaction.model";
 import { User } from "../models/user.model";
 import { Seller, ISeller } from "../models/seller.model";
 import { TransactionService } from "../services/transaction.service";
@@ -192,7 +193,7 @@ export const payCheckout: RequestHandler = async (req, res) => {
     session.startTransaction();
 
     try {
-      const { transaction } = await TransactionService.createTransactionCore({
+      let { transaction, synchronouslyApproved } = await TransactionService.createTransactionCore({
         seller,
         session,
         input: {
@@ -236,6 +237,16 @@ export const payCheckout: RequestHandler = async (req, res) => {
         mode: "live",
       });
       await session.commitTransaction();
+
+      // Cartão via Zendry já vem confirmado na resposta da própria criação
+      // (síncrono) — aplica o "approved" de verdade agora, depois do commit,
+      // e recarrega pra devolver o status certo pro comprador na hora, sem
+      // ele precisar esperar o polling pegar.
+      await TransactionService.finalizeSyncApprovalIfNeeded(transaction, synchronouslyApproved);
+      if (synchronouslyApproved) {
+        const refreshed = await Transaction.findById(transaction._id);
+        if (refreshed) transaction = refreshed;
+      }
 
       res.status(201).json({
         status: true,

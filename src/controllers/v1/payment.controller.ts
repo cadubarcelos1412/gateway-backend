@@ -61,7 +61,7 @@ export const createPayment = async (req: ApiKeyRequest, res: Response): Promise<
   session.startTransaction();
 
   try {
-    const { transaction } = await TransactionService.createTransactionCore({
+    let { transaction, synchronouslyApproved } = await TransactionService.createTransactionCore({
       seller: req.merchant!,
       session,
       input,
@@ -70,6 +70,16 @@ export const createPayment = async (req: ApiKeyRequest, res: Response): Promise<
       mode: req.apiKeyMode!,
     });
     await session.commitTransaction();
+
+    // Cartão via Zendry já vem confirmado na resposta síncrona da criação —
+    // aplica "approved" de verdade agora (depois do commit) e recarrega, pra
+    // o integrador já receber o status certo na resposta do POST, sem
+    // precisar de um primeiro GET só pra descobrir que já foi aprovado.
+    await TransactionService.finalizeSyncApprovalIfNeeded(transaction, synchronouslyApproved);
+    if (synchronouslyApproved) {
+      const refreshed = await Transaction.findById(transaction._id);
+      if (refreshed) transaction = refreshed;
+    }
 
     res.status(201).json(toPublicPayment(transaction));
   } catch (error) {

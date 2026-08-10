@@ -21,10 +21,19 @@ export const createTransaction = async (req: Request, res: Response): Promise<vo
     const result = await TransactionService.createTransaction(req, session);
     await session.commitTransaction();
 
+    // Cartão via Zendry já vem confirmado na resposta síncrona da criação —
+    // aplica "approved" de verdade agora (depois do commit) e recarrega.
+    await TransactionService.finalizeSyncApprovalIfNeeded(result.transaction, result.synchronouslyApproved);
+    let transaction = result.transaction;
+    if (result.synchronouslyApproved) {
+      const refreshed = await Transaction.findById(transaction._id);
+      if (refreshed) transaction = refreshed;
+    }
+
     res.status(201).json({
       status: true,
       msg: `✅ Transação criada com sucesso via ${result.acquirer}.`,
-      transaction: result.transaction,
+      transaction,
     });
   } catch (error) {
     await session.abortTransaction();

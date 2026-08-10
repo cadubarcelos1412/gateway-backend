@@ -130,6 +130,12 @@ export class ZendryAcquirer implements IAcquirer {
     return {
       externalId: result.muid,
       postbackUrl: payload.postbackUrl,
+      // Chegou até aqui só se result.status === "accepted" (qualquer outro
+      // valor já lançou erro acima) — a Zendry não manda webhook nem tem
+      // endpoint de consulta confirmado pra cartão, então "approved" tem
+      // que ser aplicado agora, síncrono, ou a transação nunca sai de
+      // "pending".
+      synchronouslyApproved: true,
       paymentDetails: {
         cardLastDigits: result.lastDigits,
         cardBrand: result.brand,

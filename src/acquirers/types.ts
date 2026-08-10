@@ -64,6 +64,17 @@ export type CreateTransactionResult = {
   postbackUrl?: string;
 
   /**
+   * true quando a adquirente já confirmou a aprovação de forma SÍNCRONA
+   * nesta mesma chamada (sem depender de webhook/reconciliação depois) —
+   * ex.: cartão via Zendry, onde `createTransaction` só retorna sem lançar
+   * erro se o resultado já veio "accepted". Quando true, quem chama deve
+   * aplicar o status "approved" (ledger/wallet) logo após criar a
+   * transação, em vez de deixar como "pending" esperando confirmação
+   * assíncrona que nunca vai chegar.
+   */
+  synchronouslyApproved?: boolean;
+
+  /**
    * Dados seguros de exibição/reconciliação devolvidos pela adquirente —
    * nunca incluir aqui dados sensíveis de cartão (número/CVV/threeds bruto).
    */

@@ -22,6 +22,7 @@ import { CreateTransactionDTO, CreateTransactionResult, PaymentMethod } from "..
 
 import { dispatchWebhookEvent } from "./webhook.service";
 import { toPublicPayment } from "../utils/publicPayment";
+import { applyZendryPaymentStatus } from "./zendryPaymentStatus.service";
 
 export type TransactionMode = "test" | "live";
 
@@ -87,7 +88,11 @@ export class TransactionService {
     if (idempotencyKey) {
       const existing = await Transaction.findOne({ idempotencyKey }).lean();
       if (existing) {
-        return { transaction: existing as unknown as ITransaction, acquirer: (seller as any).acquirer || "zendry" };
+        // false de propósito — é uma transação JÁ existente (dedup por
+        // idempotencyKey), a aprovação síncrona (se houve) já foi aplicada
+        // na requisição original que a criou. Reaplicar aqui seria a
+        // segunda vez pro mesmo pagamento.
+        return { transaction: existing as unknown as ITransaction, acquirer: (seller as any).acquirer || "zendry", synchronouslyApproved: false };
       }
     }
 
@@ -145,7 +150,7 @@ export class TransactionService {
 
       void dispatchWebhookEvent(String(seller._id), "payment.created", toPublicPayment(tx));
 
-      return { transaction: tx, acquirer: "test" };
+      return { transaction: tx, acquirer: "test", synchronouslyApproved: false };
     }
 
     /* ---------------------------------------------------------------- */
@@ -204,12 +209,14 @@ export class TransactionService {
     let externalId = "";
     let postbackUrl = dto.postbackUrl;
     let paymentDetails: CreateTransactionResult["paymentDetails"];
+    let synchronouslyApproved = false;
 
     try {
       const result = await acquirer.createTransaction(dto);
       externalId = result.externalId;
       postbackUrl = result.postbackUrl || postbackUrl;
       paymentDetails = result.paymentDetails;
+      synchronouslyApproved = result.synchronouslyApproved ?? false;
     } catch (err: any) {
       await TransactionAuditService.log({
         sellerId: seller._id as Types.ObjectId,
@@ -347,7 +354,36 @@ export class TransactionService {
 
     void dispatchWebhookEvent(String(seller._id), "payment.created", toPublicPayment(tx));
 
-    return { transaction: tx, acquirer: acquirerKey };
+    // "synchronouslyApproved" só descreve o que a adquirente respondeu — a
+    // transação em si continua salva como "pending" aqui (Transaction.create
+    // acima). Quem chama precisa aplicar o "approved" de verdade DEPOIS do
+    // commit desta sessão (ver applyZendryPaymentStatus), nunca aqui dentro:
+    // é uma chamada que credita ledger/wallet numa segunda transação Mongo
+    // própria, e não pode ficar aninhada dentro de uma sessão que ainda
+    // pode abortar.
+    return { transaction: tx, acquirer: acquirerKey, synchronouslyApproved };
+  }
+
+  /**
+   * Chamar SEMPRE depois do commit da sessão que criou a transação (nunca
+   * de dentro dela) — aplica o "approved" de verdade (ledger + wallet) pra
+   * transações que a adquirente já confirmou de forma síncrona (hoje: só
+   * cartão via Zendry, ver synchronouslyApproved em createTransactionCore).
+   * Sem isso, essas transações ficavam "pending" pra sempre — a Zendry não
+   * manda webhook nem tem endpoint de consulta confirmado pra cartão, então
+   * nada nunca chegava a corrigir o status depois (achado em produção,
+   * 2026-08-10, primeira venda real por cartão da plataforma).
+   */
+  static async finalizeSyncApprovalIfNeeded(transaction: ITransaction, synchronouslyApproved: boolean): Promise<void> {
+    if (!synchronouslyApproved || transaction.mode !== "live" || !transaction.externalId) return;
+    try {
+      await applyZendryPaymentStatus(transaction.externalId, "approved");
+    } catch (err) {
+      console.error(
+        `❌ CRÍTICO: transação ${(transaction._id as Types.ObjectId).toString()} confirmada pela adquirente mas falhou ao aplicar "approved" — precisa reconciliação manual:`,
+        err
+      );
+    }
   }
 
   /**
