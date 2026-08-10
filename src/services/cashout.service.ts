@@ -6,8 +6,10 @@ import { TransactionAuditService } from "./transactionAudit.service";
 import { postLedgerEntries } from "./ledger/ledger.service";
 import { round2 } from "./ledger/helpers";
 import { getUsdtQuote, sendUsdtPayment } from "../lib/zendry/crypto";
+import { sendPixPayment, ZendryPixKeyType } from "../lib/zendry/pixPayout";
 import { DEFAULT_FEE_TABLE } from "../models/feeTable.types";
 import { releaseMaturedBalance } from "./wallet.service";
+import { ICashoutRequest } from "../models/cashoutRequest.model";
 
 /**
  * 💸 Serviço de Cashout (Liquidação)
@@ -138,6 +140,53 @@ export class CashoutService {
     });
 
     return { cashout, wallet };
+  }
+
+  /**
+   * 2️⃣b Envia o PIX de verdade pela Zendry pra um saque JÁ aprovado
+   * internamente (ledger/wallet já debitados por approveCashout, dentro da
+   * transação que o caller já commitou). Chamar isso SÓ depois do commit —
+   * mesma razão de atomicidade do saque em USDT (ver createCryptoCashout):
+   * é uma chamada HTTP externa e irreversível, não pode ficar no meio de
+   * uma transação Mongo que ainda pode abortar.
+   *
+   * Se a Zendry falhar aqui, o saldo do seller já foi debitado e o saque já
+   * está "approved" no nosso sistema — não propaga erro pro caller (a
+   * aprovação em si funcionou), só loga como crítico pra reconciliação
+   * manual, mesmo padrão do saque em USDT.
+   */
+  static async sendApprovedPixPayout(cashout: ICashoutRequest): Promise<void> {
+    if (cashout.rail !== "pix") return;
+    if (!cashout.pixKey || !cashout.pixKeyType) {
+      console.error(`❌ CRÍTICO: saque ${(cashout._id as Types.ObjectId).toString()} aprovado sem chave PIX registrada — não dá pra enviar automaticamente, precisa de intervenção manual.`);
+      return;
+    }
+
+    const zendryKeyTypeMap: Record<string, ZendryPixKeyType> = {
+      cpf: "cpf",
+      cnpj: "cnpj",
+      email: "email",
+      phone: "phone",
+      random: "token",
+    };
+
+    try {
+      const result = await sendPixPayment({
+        idempotentId: (cashout._id as Types.ObjectId).toString(),
+        pixKeyType: zendryKeyTypeMap[cashout.pixKeyType],
+        pixKey: cashout.pixKey,
+        receiverName: cashout.pixKeyHolderName,
+        valueCents: Math.round(cashout.amount * 100),
+      });
+      cashout.externalReference = result.referenceCode;
+      cashout.providerStatus = result.status;
+      await cashout.save();
+    } catch (err) {
+      console.error(
+        `❌ CRÍTICO: saque ${(cashout._id as Types.ObjectId).toString()} aprovado (saldo já debitado) mas o envio real do PIX pela Zendry falhou — precisa reconciliação manual:`,
+        err
+      );
+    }
   }
 
   /**

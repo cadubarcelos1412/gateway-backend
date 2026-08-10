@@ -6,6 +6,7 @@ import {
   getSellerById,
   verifySellerKYC,
   toggleSellerStatus,
+  toggleAutoWithdraw,
   updateSellerAcquirer,
   getSellerFees,
   updateSellerFees,
@@ -73,6 +74,13 @@ router.patch("/:id/verify", verifySellerKYC);
  * @access  Master
  */
 router.patch("/:id/toggle-status", toggleSellerStatus);
+
+/**
+ * @route   PATCH /api/sellers/:id/toggle-auto-withdraw
+ * @desc    Liga/desliga saque PIX automático (sem aprovação manual) – Apenas master
+ * @access  Master
+ */
+router.patch("/:id/toggle-auto-withdraw", toggleAutoWithdraw);
 
 /**
  * @route   PATCH /api/sellers/:id/acquirer

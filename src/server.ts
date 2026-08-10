@@ -13,6 +13,7 @@ import v1Routes from "./routes/v1";
 import docsRoutes from "./routes/docs.routes";
 import { reconcilePendingZendryPix } from "./services/zendryReconciliation.service";
 import { releaseAllMaturedWallets } from "./services/wallet.service";
+import { reconcilePixPayoutStatuses } from "./services/pixPayoutReconciliation.service";
 
 dotenv.config();
 
@@ -120,6 +121,23 @@ connectDB()
     setTimeout(() => {
       runWalletRelease();
       setInterval(runWalletRelease, FIVE_MINUTES);
+    }, 30_000);
+
+    // 🔁 Rede de segurança pro saque em Pix (envio) — mesma desconfiança do
+    // webhook que já vale pro resto da Zendry (ver comentário no service).
+    // Só atualiza providerStatus pra exibição/auditoria no painel master.
+    const runPixPayoutReconciliation = () => {
+      reconcilePixPayoutStatuses()
+        .then((r) => {
+          if (r.updated > 0) {
+            console.log(`🔁 Reconciliação de saques PIX: ${r.checked} verificados, ${r.updated} atualizados.`);
+          }
+        })
+        .catch((err) => console.error("❌ Erro na reconciliação periódica de saques PIX:", err));
+    };
+    setTimeout(() => {
+      runPixPayoutReconciliation();
+      setInterval(runPixPayoutReconciliation, TEN_MINUTES);
     }, 30_000);
   })
   .catch((err) => {

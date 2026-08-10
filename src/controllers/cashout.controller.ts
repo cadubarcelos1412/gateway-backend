@@ -5,6 +5,7 @@ import { decodeToken } from "../config/auth";
 import { User, IUser } from "../models/user.model";
 import { CashoutService } from "../services/cashout.service";
 import CashoutRequest from "../models/cashoutRequest.model";
+import { Seller } from "../models/seller.model";
 
 /**
  * Confirma o PIN de saque antes de qualquer cashout (Pix ou USDT). Retorna
@@ -69,21 +70,56 @@ export const createCashoutRequest = async (req: Request, res: Response): Promise
       return;
     }
 
-    const cashout = await CashoutService.createCashout(user._id as Types.ObjectId, amount, session, {
+    let cashout = await CashoutService.createCashout(user._id as Types.ObjectId, amount, session, {
       type: pixKeyType,
       key: pixKey.trim(),
       holderName: pixKeyHolderName.trim(),
     });
     await session.commitTransaction();
 
+    // 🤖 Seller com saque automático ligado (ver Seller.autoWithdrawEnabled,
+    // painel master > Sellers Ativos > Ver Detalhes) — auto-aprova e já
+    // dispara o envio real na Zendry, sem esperar ninguém. É uma segunda
+    // transação própria (não dentro da de cima) pelo mesmo motivo do saque
+    // em USDT: a chamada à Zendry é irreversível e não pode ficar no meio
+    // de nada que ainda possa abortar.
+    const seller = await Seller.findOne({ userId: user._id });
+    let autoProcessed = false;
+    if (seller?.autoWithdrawEnabled) {
+      const autoSession = await mongoose.startSession();
+      autoSession.startTransaction();
+      try {
+        const { cashout: approved } = await CashoutService.approveCashout(
+          cashout._id as Types.ObjectId,
+          user._id as Types.ObjectId, // "aprovado por" o próprio automatismo do seller
+          autoSession
+        );
+        await autoSession.commitTransaction();
+        cashout = approved;
+        autoProcessed = true;
+      } catch (err) {
+        await autoSession.abortTransaction();
+        console.error("❌ Falha ao auto-aprovar saque (seguirá pendente pra aprovação manual):", err);
+      } finally {
+        autoSession.endSession();
+      }
+    }
+
+    if (autoProcessed) {
+      await CashoutService.sendApprovedPixPayout(cashout);
+    }
+
     res.status(201).json({
       status: true,
-      msg: "✅ Solicitação de saque criada com sucesso e aguardando aprovação.",
+      msg: autoProcessed
+        ? "✅ Saque automático processado — PIX enviado."
+        : "✅ Solicitação de saque criada com sucesso e aguardando aprovação.",
       data: {
         id: (cashout._id as Types.ObjectId).toString(),
         amount: cashout.amount,
         status: cashout.status,
         createdAt: cashout.createdAt,
+        autoProcessed,
       },
     });
   } catch (error: any) {
@@ -198,6 +234,8 @@ export const listCashoutRequests = async (req: Request, res: Response): Promise<
         pixKey: r.pixKey || null,
         pixKeyHolderName: r.pixKeyHolderName || null,
         destinationAddress: r.destinationAddress || null,
+        externalReference: r.externalReference || null,
+        providerStatus: r.providerStatus || null,
         createdAt: r.createdAt,
         approvedAt: r.approvedAt || null,
         rejectionReason: r.rejectionReason || null,
@@ -239,13 +277,18 @@ export const approveCashoutRequest = async (req: Request, res: Response): Promis
 
     await session.commitTransaction();
 
+    // Só depois do commit — envio real à Zendry é irreversível, não pode
+    // ficar no meio de uma transação que ainda pudesse abortar.
+    await CashoutService.sendApprovedPixPayout(cashout);
+
     res.status(200).json({
       status: true,
-      msg: "✅ Saque aprovado e contabilizado com sucesso.",
+      msg: "✅ Saque aprovado e PIX enviado.",
       data: {
         cashoutId: (cashout._id as Types.ObjectId).toString(),
         amount: cashout.amount,
         walletBalance: wallet.balance.available,
+        externalReference: cashout.externalReference || null,
       },
     });
   } catch (error: any) {

@@ -80,6 +80,10 @@ export interface ISeller extends Document {
 
   status: "active" | "suspended" | "blocked";
 
+  /** Saque PIX automático (sem aprovação manual do master) — desligado por padrão pra
+   * seller novo. Ligado só por decisão explícita do master, ver SellerDetailPage. */
+  autoWithdrawEnabled: boolean;
+
   createdAt: Date;
   updatedAt: Date;
 }
@@ -199,6 +203,8 @@ const SellerSchema = new Schema<ISeller>(
       enum: ["active", "suspended", "blocked"],
       default: "active",
     },
+
+    autoWithdrawEnabled: { type: Boolean, default: false },
   },
   {
     timestamps: true,

@@ -328,6 +328,48 @@ export const toggleSellerStatus = async (req: Request, res: Response): Promise<v
   }
 };
 
+/**
+ * 🤖 Liga/desliga saque PIX automático (sem aprovação manual) de um seller —
+ * apenas master. Desligado por padrão pra todo seller novo (ver
+ * seller.model.ts); ligar é decisão explícita, seller por seller.
+ */
+export const toggleAutoWithdraw = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const user = await getUserFromToken(req.headers.authorization);
+    if (!user || user.role !== "master") {
+      res.status(403).json({ status: false, msg: "Acesso negado. Apenas master pode alterar isso." });
+      return;
+    }
+
+    const { id } = req.params;
+    const { enabled } = req.body;
+
+    if (!Types.ObjectId.isValid(id)) {
+      res.status(400).json({ status: false, msg: "ID de seller inválido." });
+      return;
+    }
+    if (typeof enabled !== "boolean") {
+      res.status(400).json({ status: false, msg: "Campo 'enabled' deve ser true ou false." });
+      return;
+    }
+
+    const seller = await Seller.findByIdAndUpdate(id, { autoWithdrawEnabled: enabled }, { new: true }).lean();
+    if (!seller) {
+      res.status(404).json({ status: false, msg: "Seller não encontrado." });
+      return;
+    }
+
+    res.status(200).json({
+      status: true,
+      msg: `✅ Saque automático ${enabled ? "ativado" : "desativado"}.`,
+      seller,
+    });
+  } catch (error) {
+    console.error("❌ Erro em toggleAutoWithdraw:", error);
+    res.status(500).json({ status: false, msg: "Erro interno ao atualizar saque automático." });
+  }
+};
+
 /* 🏦 Definir qual adquirente processa as transações de um seller – Apenas master */
 export const updateSellerAcquirer = async (req: Request, res: Response): Promise<void> => {
   try {
