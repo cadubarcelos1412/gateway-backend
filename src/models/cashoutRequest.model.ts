@@ -29,6 +29,10 @@ export interface ICashoutRequest extends Document {
   pixKeyType?: "cpf" | "cnpj" | "email" | "phone" | "random";
   pixKey?: string;
   pixKeyHolderName?: string;
+  /** CPF/CNPJ do titular da chave — a Zendry pede isso pra registrar o pagamento
+   * (confirmado testando o painel deles diretamente em 2026-08-10; a doc da API
+   * dizia opcional pra modo "dict", mas o envio real falhava sem isso). */
+  pixKeyHolderDocument?: string;
   /** Rede da carteira (ex.: "trc20") — não confirmada com a Zendry, ver ZENDRY-MIGRATION.md. */
   network?: string;
   /** Cotação BRL/USDT no momento do saque — snapshot pra auditoria/disputa. */
@@ -70,6 +74,7 @@ const CashoutRequestSchema = new Schema<ICashoutRequest>(
     pixKeyType: { type: String, enum: ["cpf", "cnpj", "email", "phone", "random"] },
     pixKey: { type: String, trim: true },
     pixKeyHolderName: { type: String, trim: true },
+    pixKeyHolderDocument: { type: String, trim: true },
     network: { type: String, trim: true },
     quotedBrlPrice: { type: Number },
     usdtAmount: { type: Number },

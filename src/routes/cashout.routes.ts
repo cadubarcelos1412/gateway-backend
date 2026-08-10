@@ -2,6 +2,7 @@ import { Router } from "express";
 import {
   createCashoutRequest,
   createCryptoCashoutRequest,
+  listMyCashoutRequests,
   listCashoutRequests,
   approveCashoutRequest,
   rejectCashoutRequest,
@@ -28,6 +29,14 @@ router.post("/request", createCashoutRequest);
  * @access Protegido (token JWT)
  */
 router.post("/request/usdt", createCryptoCashoutRequest);
+
+/**
+ * @route GET /api/cashouts/mine
+ * @desc Listar os saques do próprio seller logado (Pix + USDT) — usado na
+ *       "Histórico de Saques" do dashboard, ver TransfersPage.tsx.
+ * @access Protegido (token JWT)
+ */
+router.get("/mine", listMyCashoutRequests);
 
 /**
  * @route GET /api/cashouts/list

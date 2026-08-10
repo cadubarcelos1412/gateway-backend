@@ -7,7 +7,10 @@ import { zendryFetch } from "./client";
 // confirmado, sem teste isolado feito antes de ligar pra sellers reais
 // (decisão explícita do produto em 2026-08-09) — qualquer divergência entre
 // esta doc e o comportamento real só vai aparecer no primeiro saque de
-// verdade.
+// verdade — e apareceu: os 2 primeiros saques reais (2026-08-10) nunca
+// chegaram a existir do lado da Zendry (confirmado consultando a listagem
+// deles direto), sem erro nenhum visível pra ninguém, porque o envio
+// falhava antes de retornar e o catch em cashout.service.ts só logava.
 //
 // O campo `authorized` que a Zendry aceita no registro NÃO é usado aqui pra
 // controlar aprovação manual/automática — a doc não mostra nenhum endpoint
@@ -18,11 +21,11 @@ import { zendryFetch } from "./client";
 // aprovar" é inteiramente nosso (CashoutRequest + Seller.autoWithdrawEnabled),
 // não da Zendry.
 //
-// receiver_name/receiver_document só são exigidos pela Zendry quando
-// initiation_type = "manual" (saque por dados bancários) — pra "dict"
-// (saque por chave Pix, o único modo que usamos) são opcionais, mas
-// mandamos receiver_name quando temos (ajuda auditoria/disputa do lado
-// deles).
+// receiver_document: a doc da API lista como opcional pro modo "dict" (só
+// obrigatório pra "manual"), mas isso NÃO bateu com a realidade — testando
+// o painel da própria Zendry em 2026-08-10, eles pedem CPF/CNPJ do
+// favorecido pra qualquer saque, tipo de chave incluído. Por segurança,
+// mandamos sempre que tivermos (agora obrigatório no nosso formulário).
 
 export type ZendryPixKeyType = "phone" | "email" | "cpf" | "cnpj" | "token";
 
@@ -32,6 +35,11 @@ export interface SendPixPaymentInput {
   pixKeyType: ZendryPixKeyType;
   pixKey: string;
   receiverName?: string;
+  /** CPF/CNPJ do titular — confirmado em 2026-08-10 testando o painel da
+   * Zendry diretamente que eles pedem isso pra registrar o pagamento, apesar
+   * da doc da API listar como opcional pro modo "dict". Sem isso, os saques
+   * reais testados nunca chegaram a aparecer do lado da Zendry. */
+  receiverDocument?: string;
   valueCents: number;
 }
 
@@ -51,6 +59,7 @@ export async function sendPixPayment(input: SendPixPaymentInput): Promise<SendPi
       pix_key_type: input.pixKeyType,
       pix_key: input.pixKey,
       ...(input.receiverName ? { receiver_name: input.receiverName } : {}),
+      ...(input.receiverDocument ? { receiver_document: input.receiverDocument } : {}),
       value_cents: input.valueCents,
       authorized: true,
     },

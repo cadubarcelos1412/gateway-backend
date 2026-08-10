@@ -24,7 +24,7 @@ export class CashoutService {
     userId: Types.ObjectId,
     amount: number,
     session?: ClientSession,
-    pixKeyInfo?: { type: "cpf" | "cnpj" | "email" | "phone" | "random"; key: string; holderName?: string }
+    pixKeyInfo?: { type: "cpf" | "cnpj" | "email" | "phone" | "random"; key: string; holderName?: string; holderDocument?: string }
   ) {
     const wallet = await Wallet.findOne({ userId });
     if (!wallet) throw new Error("Carteira não encontrada.");
@@ -60,6 +60,7 @@ export class CashoutService {
           pixKeyType: pixKeyInfo?.type,
           pixKey: pixKeyInfo?.key,
           pixKeyHolderName: pixKeyInfo?.holderName,
+          pixKeyHolderDocument: pixKeyInfo?.holderDocument,
         },
       ],
       { session }
@@ -159,12 +160,17 @@ export class CashoutService {
    *
    * Se a Zendry falhar aqui, o saldo do seller já foi debitado e o saque já
    * está "approved" no nosso sistema — não propaga erro pro caller (a
-   * aprovação em si funcionou), só loga como crítico pra reconciliação
-   * manual, mesmo padrão do saque em USDT.
+   * aprovação em si funcionou), mas NUNCA falha em silêncio: grava a falha
+   * em cashout.providerStatus (visível no painel master, ver
+   * WithdrawalPage.tsx) além de logar como crítico. Achado em produção em
+   * 2026-08-10: os 2 primeiros saques reais falharam aqui e ninguém viu —
+   * só log de servidor que ninguém olha.
    */
   static async sendApprovedPixPayout(cashout: ICashoutRequest): Promise<void> {
     if (cashout.rail !== "pix") return;
     if (!cashout.pixKey || !cashout.pixKeyType) {
+      cashout.providerStatus = "FALHOU: chave PIX ausente no registro do saque.";
+      await cashout.save();
       console.error(`❌ CRÍTICO: saque ${(cashout._id as Types.ObjectId).toString()} aprovado sem chave PIX registrada — não dá pra enviar automaticamente, precisa de intervenção manual.`);
       return;
     }
@@ -183,12 +189,18 @@ export class CashoutService {
         pixKeyType: zendryKeyTypeMap[cashout.pixKeyType],
         pixKey: cashout.pixKey,
         receiverName: cashout.pixKeyHolderName,
+        receiverDocument: cashout.pixKeyHolderDocument,
         valueCents: Math.round(cashout.amount * 100),
       });
       cashout.externalReference = result.referenceCode;
       cashout.providerStatus = result.status;
       await cashout.save();
     } catch (err) {
+      // Visível pra quem for olhar o saque no painel master, não só no log
+      // do servidor — truncado porque o erro cru pode conter detalhe da
+      // resposta da Zendry que não deveria virar texto solto na tela.
+      cashout.providerStatus = `FALHOU: ${(err as Error).message?.slice(0, 200) || "erro desconhecido"}`;
+      await cashout.save();
       console.error(
         `❌ CRÍTICO: saque ${(cashout._id as Types.ObjectId).toString()} aprovado (saldo já debitado) mas o envio real do PIX pela Zendry falhou — precisa reconciliação manual:`,
         err

@@ -38,7 +38,7 @@ export const createCashoutRequest = async (req: Request, res: Response): Promise
       return;
     }
 
-    const { amount, pin, pixKeyType, pixKey, pixKeyHolderName } = req.body;
+    const { amount, pin, pixKeyType, pixKey, pixKeyHolderName, pixKeyHolderDocument } = req.body;
     if (!amount || amount <= 0) {
       res.status(400).json({ status: false, msg: "Valor de saque inválido." });
       return;
@@ -55,6 +55,14 @@ export const createCashoutRequest = async (req: Request, res: Response): Promise
     }
     if (!pixKeyHolderName || typeof pixKeyHolderName !== "string" || !pixKeyHolderName.trim()) {
       res.status(400).json({ status: false, msg: "Nome do titular da chave PIX é obrigatório." });
+      return;
+    }
+    // CPF/CNPJ do favorecido — a Zendry pede isso pra qualquer saque
+    // (confirmado no painel deles em 2026-08-10), independente do tipo de
+    // chave. Sem isso, os 2 primeiros saques reais falharam silenciosamente.
+    const holderDocumentDigits = typeof pixKeyHolderDocument === "string" ? pixKeyHolderDocument.replace(/\D/g, "") : "";
+    if (holderDocumentDigits.length !== 11 && holderDocumentDigits.length !== 14) {
+      res.status(400).json({ status: false, msg: "CPF (11 dígitos) ou CNPJ (14 dígitos) do titular da chave é obrigatório." });
       return;
     }
 
@@ -74,6 +82,7 @@ export const createCashoutRequest = async (req: Request, res: Response): Promise
       type: pixKeyType,
       key: pixKey.trim(),
       holderName: pixKeyHolderName.trim(),
+      holderDocument: holderDocumentDigits,
     });
     await session.commitTransaction();
 
@@ -200,6 +209,56 @@ export const createCryptoCashoutRequest = async (req: Request, res: Response): P
       status: false,
       msg: error.message || "Erro ao processar saque em USDT.",
     });
+  }
+};
+
+/* -------------------------------------------------------------------------- */
+/* 📋 1️⃣c Seller lista os PRÓPRIOS saques (Pix + USDT)                       */
+/* -------------------------------------------------------------------------- */
+/**
+ * Existe porque a "Histórico de Saques" do seller (TransfersPage.tsx) sempre
+ * leu de GET /user/transactions filtrando type==="withdraw" — mas
+ * CashoutRequest nunca gerou um documento em Transaction, só em
+ * CashoutRequest e em wallet.log (interno). Resultado: nenhum saque JAMAIS
+ * apareceu nessa tela, pra ninguém, desde que a feature existe — achado em
+ * 2026-08-10 depois do seller reportar que um saque de R$3 "não apareceu em
+ * histórico de saque".
+ */
+export const listMyCashoutRequests = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const token = req.headers.authorization?.replace("Bearer ", "") ?? "";
+    const payload = await decodeToken(token);
+
+    if (!payload?.id) {
+      res.status(403).json({ status: false, msg: "Token inválido." });
+      return;
+    }
+
+    const requests = await CashoutRequest.find({ userId: payload.id })
+      .sort({ createdAt: -1 })
+      .lean();
+
+    res.status(200).json({
+      status: true,
+      data: requests.map((r: any) => ({
+        id: r._id.toString(),
+        amount: r.amount,
+        status: r.status,
+        rail: r.rail,
+        pixKeyType: r.pixKeyType || null,
+        pixKey: r.pixKey || null,
+        pixKeyHolderName: r.pixKeyHolderName || null,
+        destinationAddress: r.destinationAddress || null,
+        externalReference: r.externalReference || null,
+        providerStatus: r.providerStatus || null,
+        rejectionReason: r.rejectionReason || null,
+        createdAt: r.createdAt,
+        approvedAt: r.approvedAt || null,
+      })),
+    });
+  } catch (error) {
+    console.error("❌ Erro em listMyCashoutRequests:", error);
+    res.status(500).json({ status: false, msg: "Erro ao listar seus saques." });
   }
 };
 
