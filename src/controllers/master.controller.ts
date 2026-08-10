@@ -103,9 +103,12 @@ export const getKpas = async (_req: Request, res: Response): Promise<void> => {
 
     const approvedTx = transactions.filter((t) => t.status === "approved");
 
-    // 📊 Cálculos principais
-    const volumeTotal = transactions.reduce((sum, t) => sum + (t.amount || 0), 0);
-    const volumeHoje = transactions
+    // 📊 Cálculos principais — SÓ transações aprovadas contam como volume/
+    // taxa/ticket real. Contar pending/failed aqui já causou "saldo
+    // fantasma" idêntico no dashboard do seller (ver correção de wallet em
+    // 2026-08-10) — mesmo erro, versão agregada pro master.
+    const volumeTotal = approvedTx.reduce((sum, t) => sum + (t.amount || 0), 0);
+    const volumeHoje = approvedTx
       .filter((t) => t.createdAt && new Date(t.createdAt).toDateString() === today.toDateString())
       .reduce((sum, t) => sum + (t.amount || 0), 0);
 
@@ -114,8 +117,8 @@ export const getKpas = async (_req: Request, res: Response): Promise<void> => {
       (u) => u.createdAt && new Date(u.createdAt).toDateString() === today.toDateString()
     ).length;
 
-    const totalTaxas = transactions.reduce((sum, t) => sum + (t.fee || 0), 0);
-    const taxasMensais = transactions
+    const totalTaxas = approvedTx.reduce((sum, t) => sum + (t.fee || 0), 0);
+    const taxasMensais = approvedTx
       .filter(
         (t) =>
           t.createdAt &&
@@ -124,11 +127,13 @@ export const getKpas = async (_req: Request, res: Response): Promise<void> => {
       )
       .reduce((sum, t) => sum + (t.fee || 0), 0);
 
+    // Taxa de conversão é a única métrica aqui que precisa do TOTAL de
+    // tentativas no denominador, por definição (aprovadas / todas).
     const taxaConversao =
       transactions.length > 0 ? (approvedTx.length / transactions.length) * 100 : 0;
-    const ticketMedio = transactions.length > 0 ? volumeTotal / transactions.length : 0;
+    const ticketMedio = approvedTx.length > 0 ? volumeTotal / approvedTx.length : 0;
 
-    const volumePorMetodo = transactions.reduce<Record<string, number>>((acc, t) => {
+    const volumePorMetodo = approvedTx.reduce<Record<string, number>>((acc, t) => {
       if (!t.method) return acc;
       acc[t.method] = (acc[t.method] || 0) + (t.amount || 0);
       return acc;
