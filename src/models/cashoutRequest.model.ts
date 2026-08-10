@@ -24,6 +24,11 @@ export interface ICashoutRequest extends Document {
   rail: "pix" | "usdt";
   /** Endereço USDT de destino informado pelo seller — só existe quando rail === "usdt". */
   destinationAddress?: string;
+  /** Tipo/valor/titular da chave Pix — só existe quando rail === "pix". O envio em si ainda é
+   * manual (ver approveCashout), então isso é o que quem aprova usa pra saber pra onde mandar. */
+  pixKeyType?: "cpf" | "cnpj" | "email" | "phone" | "random";
+  pixKey?: string;
+  pixKeyHolderName?: string;
   /** Rede da carteira (ex.: "trc20") — não confirmada com a Zendry, ver ZENDRY-MIGRATION.md. */
   network?: string;
   /** Cotação BRL/USDT no momento do saque — snapshot pra auditoria/disputa. */
@@ -62,6 +67,9 @@ const CashoutRequestSchema = new Schema<ICashoutRequest>(
 
     rail: { type: String, enum: ["pix", "usdt"], default: "pix", required: true },
     destinationAddress: { type: String, trim: true },
+    pixKeyType: { type: String, enum: ["cpf", "cnpj", "email", "phone", "random"] },
+    pixKey: { type: String, trim: true },
+    pixKeyHolderName: { type: String, trim: true },
     network: { type: String, trim: true },
     quotedBrlPrice: { type: Number },
     usdtAmount: { type: Number },

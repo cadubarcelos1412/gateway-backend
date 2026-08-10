@@ -18,7 +18,12 @@ export class CashoutService {
   /**
    * 1️⃣ Criar solicitação de saque
    */
-  static async createCashout(userId: Types.ObjectId, amount: number, session?: ClientSession) {
+  static async createCashout(
+    userId: Types.ObjectId,
+    amount: number,
+    session?: ClientSession,
+    pixKeyInfo?: { type: "cpf" | "cnpj" | "email" | "phone" | "random"; key: string; holderName?: string }
+  ) {
     const wallet = await Wallet.findOne({ userId });
     if (!wallet) throw new Error("Carteira não encontrada.");
 
@@ -38,7 +43,16 @@ export class CashoutService {
     });
 
     const [cashout] = await CashoutRequest.create(
-      [{ userId, amount, status: "pending" }],
+      [
+        {
+          userId,
+          amount,
+          status: "pending",
+          pixKeyType: pixKeyInfo?.type,
+          pixKey: pixKeyInfo?.key,
+          pixKeyHolderName: pixKeyInfo?.holderName,
+        },
+      ],
       { session }
     );
 

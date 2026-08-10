@@ -37,9 +37,23 @@ export const createCashoutRequest = async (req: Request, res: Response): Promise
       return;
     }
 
-    const { amount, pin } = req.body;
+    const { amount, pin, pixKeyType, pixKey, pixKeyHolderName } = req.body;
     if (!amount || amount <= 0) {
       res.status(400).json({ status: false, msg: "Valor de saque inválido." });
+      return;
+    }
+
+    const validPixKeyTypes = ["cpf", "cnpj", "email", "phone", "random"];
+    if (!pixKeyType || !validPixKeyTypes.includes(pixKeyType)) {
+      res.status(400).json({ status: false, msg: "Tipo de chave PIX inválido." });
+      return;
+    }
+    if (!pixKey || typeof pixKey !== "string" || !pixKey.trim()) {
+      res.status(400).json({ status: false, msg: "Chave PIX é obrigatória." });
+      return;
+    }
+    if (!pixKeyHolderName || typeof pixKeyHolderName !== "string" || !pixKeyHolderName.trim()) {
+      res.status(400).json({ status: false, msg: "Nome do titular da chave PIX é obrigatório." });
       return;
     }
 
@@ -55,7 +69,11 @@ export const createCashoutRequest = async (req: Request, res: Response): Promise
       return;
     }
 
-    const cashout = await CashoutService.createCashout(user._id as Types.ObjectId, amount, session);
+    const cashout = await CashoutService.createCashout(user._id as Types.ObjectId, amount, session, {
+      type: pixKeyType,
+      key: pixKey.trim(),
+      holderName: pixKeyHolderName.trim(),
+    });
     await session.commitTransaction();
 
     res.status(201).json({
@@ -175,6 +193,11 @@ export const listCashoutRequests = async (req: Request, res: Response): Promise<
         seller: r.userId,
         amount: r.amount,
         status: r.status,
+        rail: r.rail,
+        pixKeyType: r.pixKeyType || null,
+        pixKey: r.pixKey || null,
+        pixKeyHolderName: r.pixKeyHolderName || null,
+        destinationAddress: r.destinationAddress || null,
         createdAt: r.createdAt,
         approvedAt: r.approvedAt || null,
         rejectionReason: r.rejectionReason || null,
