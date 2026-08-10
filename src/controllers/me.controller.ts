@@ -11,6 +11,7 @@ import { getOrCreateDefaultFeeConfig } from "../models/systemFeeConfig.model";
 import { AnticipationService } from "../services/anticipation.service";
 import { AnticipationTier } from "../models/anticipationRequest.model";
 import { releaseMaturedBalance } from "../services/wallet.service";
+import { RefundService, RefundError } from "../services/refund.service";
 
 /**
  * 🔐 Extrai e valida o id do usuário logado a partir do Bearer token.
@@ -91,6 +92,35 @@ export const getMyTransactions = async (req: Request, res: Response): Promise<vo
   } catch (err) {
     console.error("❌ Erro em getMyTransactions:", err);
     res.status(500).json({ status: false, msg: "Erro interno ao buscar transações." });
+  }
+};
+
+/**
+ * POST /api/user/transactions/:id/refund
+ * Estorno manual — o seller já devolveu (ou vai devolver) o Pix pro
+ * comprador por fora do sistema; isso só corrige nosso ledger/saldo pra
+ * bater com essa realidade. Ver RefundService.createManualRefund.
+ */
+export const refundMyTransaction = async (req: Request, res: Response): Promise<void> => {
+  const userId = await getAuthUserId(req, res);
+  if (!userId) return;
+
+  try {
+    const transaction = await RefundService.createManualRefund({
+      transactionId: req.params.id,
+      sellerUserId: new mongoose.Types.ObjectId(userId),
+      reason: typeof req.body?.reason === "string" ? req.body.reason : undefined,
+      ip: req.ip || "",
+      userAgent: (req.headers["user-agent"] as string) || "unknown",
+    });
+    res.status(200).json({ status: true, msg: "✅ Estorno registrado com sucesso.", transaction });
+  } catch (err) {
+    if (err instanceof RefundError) {
+      res.status(err.status).json({ status: false, msg: err.message });
+      return;
+    }
+    console.error("❌ Erro em refundMyTransaction:", err);
+    res.status(500).json({ status: false, msg: "Erro interno ao processar estorno." });
   }
 };
 

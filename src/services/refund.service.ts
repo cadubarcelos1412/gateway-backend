@@ -142,4 +142,95 @@ export class RefundService {
 
     return transaction;
   }
+
+  /**
+   * Estorno MANUAL, disparado pelo próprio seller no dashboard — não passa
+   * pela adquirente (createRefund acima já documenta: a Zendry não tem
+   * endpoint de estorno/devolução confirmado, nem pra Pix nem pra cartão —
+   * ver acquirers/zendry.acquirer.ts e a categoria "Pagamentos"/"Recebimentos"
+   * da doc deles, nenhuma tem endpoint de reversão). Exigir a confirmação da
+   * adquirente antes de reverter os livros — que é o certo pra createRefund,
+   * chamado por um integrador externo — não faz sentido aqui: essa ação
+   * SEMPRE assume que o dinheiro já foi (ou vai ser) devolvido ao comprador
+   * por fora do sistema (Pix manual feito pelo próprio seller), e o botão
+   * só serve pra manter nosso ledger/saldo corretos depois disso. Por isso o
+   * texto do botão no front tem que deixar isso claro — não é "clique e o
+   * sistema devolve pro comprador", é "clique DEPOIS de já ter devolvido".
+   */
+  static async createManualRefund(params: {
+    transactionId: string;
+    sellerUserId: Types.ObjectId;
+    reason?: string;
+    ip: string;
+    userAgent: string;
+  }): Promise<ITransaction> {
+    const { transactionId, sellerUserId, reason, ip, userAgent } = params;
+
+    const transaction = await Transaction.findOne({ _id: transactionId, userId: sellerUserId });
+    if (!transaction) {
+      throw new RefundError("Pagamento não encontrado.", "not_found", 404);
+    }
+    if (transaction.status === "refunded") {
+      throw new RefundError("Esse pagamento já foi estornado.", "already_refunded", 400);
+    }
+    if (transaction.status !== "approved") {
+      throw new RefundError(
+        `Só é possível estornar pagamentos aprovados. Status atual: "${transaction.status}".`,
+        "not_refundable",
+        400
+      );
+    }
+    if (transaction.mode !== "live") {
+      throw new RefundError(
+        "Estorno de pagamentos em modo teste não é suportado — modo teste não move dinheiro real.",
+        "test_mode_not_supported",
+        400
+      );
+    }
+
+    const seller = await Seller.findOne({ userId: transaction.userId });
+    if (!seller) throw new RefundError("Vendedor não encontrado.", "seller_not_found", 404);
+
+    const session = await mongoose.startSession();
+    session.startTransaction();
+    try {
+      await reverseTransactionLedgerAndWallet(
+        transaction,
+        session,
+        reason || "Estorno manual solicitado pelo seller no dashboard"
+      );
+      transaction.status = "refunded";
+      transaction.refund = { reason, refundedAt: new Date() };
+      await transaction.save({ session });
+      await session.commitTransaction();
+    } catch (err) {
+      await session.abortTransaction();
+      throw new RefundError(
+        `Falha ao reverter o ledger interno: ${(err as Error).message}.`,
+        "internal_reversal_failed",
+        500
+      );
+    } finally {
+      session.endSession();
+    }
+
+    await TransactionAuditService.log({
+      transactionId: transaction._id as Types.ObjectId,
+      sellerId: seller._id as Types.ObjectId,
+      userId: transaction.userId,
+      amount: transaction.amount,
+      method: transaction.method,
+      status: "refunded",
+      kycStatus: seller.status,
+      ipAddress: ip,
+      userAgent,
+      buyerDocument: transaction.purchaseData?.customer?.document,
+      flags: [],
+      description: reason || "Estorno manual solicitado pelo seller no dashboard — devolução ao comprador feita fora do sistema.",
+    });
+
+    void dispatchWebhookEvent(String(seller._id), "refund.succeeded", toPublicPayment(transaction));
+
+    return transaction;
+  }
 }
