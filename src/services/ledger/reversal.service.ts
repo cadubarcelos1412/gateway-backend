@@ -67,9 +67,8 @@ async function debitWalletForTransaction(
  * (débito vira crédito e vice-versa) e desfaz a reserva/saldo do seller e de
  * eventuais recipients de split.
  *
- * Usado em dois cenários: (1) a adquirente reporta falha/recusa depois da
- * reserva otimista feita na criação, (2) um estorno de transação já aprovada
- * (RefundService chama isso DEPOIS de confirmar o estorno na adquirente).
+ * Usado quando a adquirente reporta falha/recusa depois da reserva otimista
+ * feita na criação.
  *
  * Idempotente por `transaction.reversedAt` — chamar duas vezes pra mesma
  * transação é um no-op na segunda vez.

@@ -26,17 +26,12 @@ export interface ITransaction extends Document {
   retentionDays: number;
   type: "deposit" | "withdraw";
   method: "pix" | "credit_card" | "boleto";
-  status: "pending" | "approved" | "failed" | "refunded";
-  /** Marcado quando o ledger/wallet já foram revertidos (falha pós-reserva ou estorno) — evita reversão duplicada. */
+  status: "pending" | "approved" | "failed";
+  /** Marcado quando o ledger/wallet já foram revertidos (falha pós-reserva) — evita reversão duplicada. */
   reversedAt?: Date;
   /** Marcado quando o ledger/wallet já foram creditados de verdade (ver applyZendryPaymentStatus) —
    * evita creditar duas vezes se o status "approved" for aplicado mais de uma vez. */
   creditedAt?: Date;
-  refund?: {
-    reason?: string;
-    refundedAt: Date;
-    refundedBy?: Types.ObjectId;
-  };
   /** "test" para transações criadas com uma chave de API sk_test_...; "live" para dinheiro real. */
   mode: "test" | "live";
   description?: string;
@@ -99,18 +94,13 @@ const TransactionSchema = new Schema<ITransaction>(
 
     status: {
       type: String,
-      enum: ["pending", "approved", "failed", "refunded"],
+      enum: ["pending", "approved", "failed"],
       default: "pending",
       index: true,
     },
 
     reversedAt: { type: Date },
     creditedAt: { type: Date },
-    refund: {
-      reason: { type: String, trim: true, maxlength: 500 },
-      refundedAt: { type: Date },
-      refundedBy: { type: Schema.Types.ObjectId, ref: "User" },
-    },
 
     mode: {
       type: String,

@@ -4,7 +4,6 @@ import { authApiKey } from "../../middleware/authApiKey";
 import { apiKeyRateLimit } from "../../middleware/apiKeyRateLimit";
 import accountRoutes from "./account.routes";
 import paymentsRoutes from "./payments.routes";
-import refundsRoutes from "./refunds.routes";
 import testPaymentsRoutes from "./testPayments.routes";
 import webhookEndpointsRoutes from "./webhookEndpoints.routes";
 import cardAuthenticationsRoutes from "./cardAuthentications.routes";
@@ -20,7 +19,6 @@ router.use(apiKeyRateLimit);
 
 router.use("/account", accountRoutes);
 router.use("/payments", paymentsRoutes);
-router.use("/refunds", refundsRoutes);
 router.use("/test/payments", testPaymentsRoutes);
 router.use("/webhook_endpoints", webhookEndpointsRoutes);
 router.use("/card_authentications", cardAuthenticationsRoutes);

@@ -144,24 +144,4 @@ export class ZendryAcquirer implements IAcquirer {
       },
     };
   }
-
-  /**
-   * NÃO IMPLEMENTADO DE PROPÓSITO — ver src/lib/zendry/card.ts, comentário
-   * final: cancelamento/estorno de cartão e devolução de Pix nunca foram
-   * confirmados contra a API real da Zendry durante o desenvolvimento deste
-   * projeto. Lançar um erro claro aqui é melhor do que fingir que o estorno
-   * aconteceu — RefundService depende disso pra NUNCA reverter ledger/wallet
-   * sem confirmação real de que o dinheiro voltou pro comprador.
-   *
-   * Pra habilitar: confirme com o suporte da Zendry (a) o endpoint de
-   * cancelamento/estorno de card_payments (método, payload, resposta) e (b)
-   * o endpoint de devolução de Pix — são fluxos distintos — e implemente
-   * cada um aqui.
-   */
-  async refund(): Promise<any> {
-    throw new Error(
-      "Estorno na Zendry ainda não confirmado com o suporte (nem para cartão, nem para Pix). " +
-        "Não implementado de propósito — ver comentário em zendry.acquirer.ts."
-    );
-  }
 }

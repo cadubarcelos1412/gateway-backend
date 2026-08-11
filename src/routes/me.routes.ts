@@ -8,7 +8,6 @@ import {
   getMyCredentials,
   getMyFees,
   anticipateWallet,
-  refundMyTransaction,
 } from "../controllers/me.controller";
 import { setupPin, changePin, forgotPin, resetPin } from "../controllers/pin.controller";
 
@@ -22,7 +21,6 @@ const router = Router();
 router.get("/me", getMe);
 router.get("/wallet", getMyWallet);
 router.get("/transactions", getMyTransactions);
-router.post("/transactions/:id/refund", refundMyTransaction);
 router.get("/products", getMyProducts);
 router.get("/checkouts", getMyCheckouts);
 router.get("/credentials", getMyCredentials);

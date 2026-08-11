@@ -4,5 +4,4 @@ import { CreateTransactionDTO, CreateTransactionResult } from "./types";
 export interface IAcquirer {
   createTransaction(payload: CreateTransactionDTO): Promise<CreateTransactionResult>;
   capture?(externalId: string): Promise<any>;
-  refund?(externalId: string, amountInCents?: number): Promise<any>;
 }
