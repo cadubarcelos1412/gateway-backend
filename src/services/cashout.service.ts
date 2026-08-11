@@ -36,6 +36,17 @@ export class CashoutService {
 
     if (wallet.balance.available < amount) throw new Error("Saldo insuficiente para saque.");
 
+    // 💸 Taxa de Pix OUT — igual ao saque em USDT (createCryptoCashout) já
+    // fazia, mas o saque em Pix nunca calculava nada aqui: mandava pra
+    // Zendry o valor cheio, sem capturar margem nenhuma. Achado em
+    // 2026-08-11 comparando o saldo interno com o saldo real na Zendry (a
+    // diferença era exatamente a soma das taxas de saque nunca cobradas).
+    const seller = await Seller.findOne({ userId });
+    const pixOut = seller?.feeTable?.pixOut ?? DEFAULT_FEE_TABLE.pixOut;
+    const fee = round2(pixOut.fixed + (amount * pixOut.percentage) / 100);
+    const netAmount = round2(amount - fee);
+    if (netAmount <= 0) throw new Error("Valor de saque muito baixo para cobrir a taxa.");
+
     // ❄️ Congela o valor solicitado — só isso já impede o seller de gastar
     // ou sacar de novo o mesmo dinheiro enquanto a solicitação está em
     // aberto. NÃO empurra pra wallet.balance.unAvailable (bug corrigido em
@@ -56,6 +67,8 @@ export class CashoutService {
         {
           userId,
           amount,
+          fee,
+          netAmount,
           status: "pending",
           pixKeyType: pixKeyInfo?.type,
           pixKey: pixKeyInfo?.key,
@@ -99,12 +112,19 @@ export class CashoutService {
     if (!wallet) throw new Error("Carteira não encontrada.");
 
     const amount = round2(cashout.amount);
+    // Fallback pra saques criados antes desse campo existir (fee/netAmount
+    // nunca eram calculados) — trata como se não houvesse taxa, em vez de
+    // quebrar o lançamento contábil de registros antigos.
+    const fee = round2(cashout.fee ?? 0);
+    const netAmount = round2(cashout.netAmount ?? amount);
 
-    // 🧾 Lançamentos contábeis — duplo-entry
+    // 🧾 Lançamentos contábeis — duplo-entry. netAmount + fee = amount
+    // sempre (ver createCashout), então os débitos e créditos batem.
     await postLedgerEntries(
       [
         { account: "passivo_seller", type: "debit", amount },
-        { account: "conta_corrente_bancaria", type: "credit", amount },
+        { account: "conta_corrente_bancaria", type: "credit", amount: netAmount },
+        ...(fee > 0 ? [{ account: "receita_taxa_kissa", type: "credit" as const, amount: fee }] : []),
       ],
       {
         idempotencyKey: `cashout:${(cashout._id as Types.ObjectId).toString()}`,
@@ -190,7 +210,10 @@ export class CashoutService {
         pixKey: cashout.pixKey,
         receiverName: cashout.pixKeyHolderName,
         receiverDocument: cashout.pixKeyHolderDocument,
-        valueCents: Math.round(cashout.amount * 100),
+        // Manda o valor LÍQUIDO (depois da taxa de Pix out) — mandar o valor
+        // cheio aqui era exatamente o motivo do saldo interno ficar maior
+        // que o saldo real na Zendry (nenhuma margem capturada no saque).
+        valueCents: Math.round((cashout.netAmount ?? cashout.amount) * 100),
       });
       cashout.externalReference = result.referenceCode;
       cashout.providerStatus = result.status;

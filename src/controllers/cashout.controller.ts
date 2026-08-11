@@ -126,6 +126,8 @@ export const createCashoutRequest = async (req: Request, res: Response): Promise
       data: {
         id: (cashout._id as Types.ObjectId).toString(),
         amount: cashout.amount,
+        fee: cashout.fee,
+        netAmount: cashout.netAmount,
         status: cashout.status,
         createdAt: cashout.createdAt,
         autoProcessed,
@@ -243,6 +245,8 @@ export const listMyCashoutRequests = async (req: Request, res: Response): Promis
       data: requests.map((r: any) => ({
         id: r._id.toString(),
         amount: r.amount,
+        fee: r.fee ?? null,
+        netAmount: r.netAmount ?? null,
         status: r.status,
         rail: r.rail,
         pixKeyType: r.pixKeyType || null,
@@ -287,6 +291,8 @@ export const listCashoutRequests = async (req: Request, res: Response): Promise<
         id: r._id.toString(),
         seller: r.userId,
         amount: r.amount,
+        fee: r.fee ?? null,
+        netAmount: r.netAmount ?? null,
         status: r.status,
         rail: r.rail,
         pixKeyType: r.pixKeyType || null,
