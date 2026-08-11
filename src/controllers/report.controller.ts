@@ -35,18 +35,28 @@ export const getEnterpriseReport = async (req: Request, res: Response): Promise<
     if (!isAdmin) filter.userId = new mongoose.Types.ObjectId(payload?.id);
     else if (userId) filter.userId = new mongoose.Types.ObjectId(userId as string);
 
+    // Contagem por status/método usa TODAS as transações do período (inclui
+    // pending/failed) — é informação operacional legítima ("quantas
+    // tentativas tivemos"). Mas nenhum valor em R$ (taxa, líquido, volume
+    // "processado") pode vir daí: pending ainda pode falhar, failed nunca
+    // gerou cobrança nenhuma. Achado em 2026-08-11 depois do "Total de
+    // Taxas" do painel de transações mostrar taxa de venda que nunca foi
+    // cobrada — esse relatório tinha o mesmo problema em quase todo campo.
     const transactions = await Transaction.find(filter).lean();
+    const approvedFilter = { ...filter, status: "approved" };
+    const approvedTransactions = transactions.filter((t) => t.status === "approved");
     const policies = await RetentionPolicy.find().lean();
 
-    const totalProcessed = round(transactions.reduce((acc, t) => acc + (t.amount || 0), 0));
-    const totalNet = round(transactions.reduce((acc, t) => acc + (t.netAmount || 0), 0));
-    const totalFees = round(transactions.reduce((acc, t) => acc + (t.fee || 0), 0));
+    const totalProcessed = round(approvedTransactions.reduce((acc, t) => acc + (t.amount || 0), 0));
+    const totalNet = round(approvedTransactions.reduce((acc, t) => acc + (t.netAmount || 0), 0));
+    const totalFees = round(approvedTransactions.reduce((acc, t) => acc + (t.fee || 0), 0));
     const totalTransactions = transactions.length;
-    const ticketAverage = totalTransactions > 0 ? round(totalProcessed / totalTransactions) : 0;
+    const ticketAverage =
+      approvedTransactions.length > 0 ? round(totalProcessed / approvedTransactions.length) : 0;
 
     let totalRetention = 0;
     for (const policy of policies) {
-      const methodTx = transactions.filter((t) => t.method === policy.method);
+      const methodTx = approvedTransactions.filter((t) => t.method === policy.method);
       totalRetention += methodTx.reduce(
         (acc, t) => acc + ((t.netAmount || 0) * (policy.percentage / 100)),
         0
@@ -56,17 +66,19 @@ export const getEnterpriseReport = async (req: Request, res: Response): Promise<
 
     const totalByMethod: Record<string, string> = {};
     const totalByStatus: Record<string, number> = {};
-    for (const t of transactions) {
+    for (const t of approvedTransactions) {
       totalByMethod[t.method] = toBRL(
         (totalByMethod[t.method]
           ? parseFloat(totalByMethod[t.method].replace(/[^\d,.-]/g, "").replace(",", "."))
           : 0) + (t.amount || 0)
       );
+    }
+    for (const t of transactions) {
       totalByStatus[t.status] = (totalByStatus[t.status] || 0) + 1;
     }
 
     const dailyVolume = await Transaction.aggregate([
-      { $match: filter },
+      { $match: approvedFilter },
       {
         $group: {
           _id: { $dateToString: { format: "%Y-%m-%d", date: "$createdAt" } },
@@ -79,7 +91,7 @@ export const getEnterpriseReport = async (req: Request, res: Response): Promise<
     ]);
 
     const topProducts = await Transaction.aggregate([
-      { $match: filter },
+      { $match: approvedFilter },
       { $group: { _id: "$productId", totalSold: { $sum: "$amount" }, totalTransactions: { $sum: 1 } } },
       { $sort: { totalSold: -1 } },
       { $limit: 5 },
@@ -105,7 +117,7 @@ export const getEnterpriseReport = async (req: Request, res: Response): Promise<
     ]);
 
     const topSellers = await Transaction.aggregate([
-      { $match: filter },
+      { $match: approvedFilter },
       {
         $group: {
           _id: "$userId",
