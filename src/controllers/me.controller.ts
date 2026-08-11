@@ -72,6 +72,15 @@ export const getMyWallet = async (req: Request, res: Response): Promise<void> =>
     // automaticamente (ver wallet.service.ts).
     await releaseMaturedBalance(wallet);
 
+    // Traz junto quem comprou e o que foi vendido pra cada reserva —
+    // originTransactionId já existia no schema, só não era usado. Sem isso o
+    // "Saldo a receber" só mostrava um valor solto, sem dizer de qual venda
+    // era (pedido do seller em 2026-08-10).
+    await wallet.populate({
+      path: "balance.unAvailable.originTransactionId",
+      select: "amount netAmount method createdAt purchaseData.customer.name purchaseData.products",
+    });
+
     res.status(200).json({ status: true, wallet });
   } catch (err) {
     console.error("❌ Erro em getMyWallet:", err);
