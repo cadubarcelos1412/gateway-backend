@@ -1,5 +1,7 @@
+import { Types } from "mongoose";
 import CashoutRequest from "../models/cashoutRequest.model";
 import { getPixPaymentStatus } from "../lib/zendry/pixPayout";
+import { CashoutService } from "./cashout.service";
 
 /**
  * Rede de segurança pro saque em Pix (envio, não recebimento) — mesma
@@ -10,9 +12,12 @@ import { getPixPaymentStatus } from "../lib/zendry/pixPayout";
  * Sem isso, um saque que ficasse "authorization_pending"/"sent" na Zendry
  * nunca atualizaria o `providerStatus` que a gente mostra pro master.
  *
- * Só ATUALIZA status pra exibição/auditoria — nunca reverte saldo nem
- * refaz envio. O dinheiro já saiu (ou não) na chamada original de
- * sendPixPayment; isso aqui só reflete o que a Zendry diz que aconteceu.
+ * Atualiza status pra exibição/auditoria, e — desde 2026-08-12 — também
+ * devolve o saldo pro seller quando a Zendry confirma que CANCELOU o envio
+ * (status final "canceled"). Antes disso, o saldo ficava descontado pra
+ * sempre mesmo o Pix nunca tendo saído; ver
+ * CashoutService.refundFailedPixPayout, que é idempotente. Nunca refaz o
+ * envio sozinho — só devolve o dinheiro.
  */
 export async function reconcilePixPayoutStatuses(): Promise<{ checked: number; updated: number }> {
   const pending = await CashoutRequest.find({
@@ -31,6 +36,12 @@ export async function reconcilePixPayoutStatuses(): Promise<{ checked: number; u
         cashout.providerStatus = result.status;
         await cashout.save();
         updated++;
+      }
+      if (result.status === "canceled") {
+        await CashoutService.refundFailedPixPayout(
+          cashout._id as Types.ObjectId,
+          `Zendry cancelou o envio (status: ${result.status}).`
+        );
       }
     } catch (err) {
       console.error(`⚠️ Falha ao consultar status do saque PIX ${(cashout._id as { toString(): string }).toString()}:`, err);

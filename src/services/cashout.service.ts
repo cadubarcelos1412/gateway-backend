@@ -192,6 +192,7 @@ export class CashoutService {
       cashout.providerStatus = "FALHOU: chave PIX ausente no registro do saque.";
       await cashout.save();
       console.error(`❌ CRÍTICO: saque ${(cashout._id as Types.ObjectId).toString()} aprovado sem chave PIX registrada — não dá pra enviar automaticamente, precisa de intervenção manual.`);
+      await CashoutService.refundFailedPixPayout(cashout._id as Types.ObjectId, cashout.providerStatus);
       return;
     }
 
@@ -228,6 +229,92 @@ export class CashoutService {
         `❌ CRÍTICO: saque ${(cashout._id as Types.ObjectId).toString()} aprovado (saldo já debitado) mas o envio real do PIX pela Zendry falhou — precisa reconciliação manual:`,
         err
       );
+      await CashoutService.refundFailedPixPayout(cashout._id as Types.ObjectId, cashout.providerStatus);
+    }
+  }
+
+  /**
+   * 4️⃣b Devolve o saldo de um saque Pix que falhou no envio ou que a
+   * Zendry aceitou e depois CANCELOU (status final "canceled", ver
+   * pixPayoutReconciliation.service.ts) — sem isso, o valor fica descontado
+   * do vendedor pra sempre mesmo o Pix nunca tendo saído de verdade.
+   *
+   * Achado em produção em 2026-08-12: dois saques reais voltaram
+   * "canceled"/"FALHOU" da Zendry e o saldo simplesmente sumiu da conta do
+   * seller, sem devolução nenhuma — createCashout debita na hora do
+   * pedido, e nada credicava de volta quando o envio não completava.
+   *
+   * Idempotente: só age se o cashout ainda estiver "approved" — a própria
+   * devolução muda o status pra "rejected", então uma segunda chamada
+   * (reconciliação rodando de novo, por exemplo) é no-op.
+   */
+  static async refundFailedPixPayout(cashoutId: Types.ObjectId, reason: string): Promise<void> {
+    const session = await mongoose.startSession();
+    session.startTransaction();
+    try {
+      const cashout = await CashoutRequest.findById(cashoutId).session(session);
+      if (!cashout || cashout.status !== "approved") {
+        await session.abortTransaction();
+        return;
+      }
+
+      const wallet = await Wallet.findOne({ userId: cashout.userId }).session(session);
+      if (!wallet) throw new Error("Carteira não encontrada pra devolver saque falho.");
+
+      const amount = round2(cashout.amount);
+      const fee = round2(cashout.fee ?? 0);
+      const netAmount = round2(cashout.netAmount ?? amount);
+
+      wallet.balance.available = round2(wallet.balance.available + amount);
+      wallet.log.push({
+        transactionId: cashout._id as Types.ObjectId,
+        type: "topup",
+        method: "pix",
+        amount,
+        security: { createdAt: new Date(), ipAddress: "system", userAgent: "pix-payout-refund" },
+      });
+      await wallet.save({ session });
+
+      // Reverte exatamente os lançamentos feitos em approveCashout —
+      // netAmount + fee = amount sempre, então os débitos/créditos batem.
+      await postLedgerEntries(
+        [
+          { account: "passivo_seller", type: "credit", amount },
+          { account: "conta_corrente_bancaria", type: "debit", amount: netAmount },
+          ...(fee > 0 ? [{ account: "receita_taxa_kissa", type: "debit" as const, amount: fee }] : []),
+        ],
+        {
+          idempotencyKey: `cashout_refund:${cashoutId.toString()}`,
+          transactionId: cashoutId.toString(),
+          sellerId: cashout.userId.toString(),
+          source: { system: "cashout", acquirer: "zendry" },
+          eventAt: new Date(),
+        },
+        session
+      );
+
+      cashout.status = "rejected";
+      cashout.rejectionReason = `Saldo devolvido automaticamente — ${reason}`;
+      await cashout.save({ session });
+
+      await session.commitTransaction();
+
+      await TransactionAuditService.log({
+        transactionId: cashout._id as Types.ObjectId,
+        sellerId: cashout.userId as Types.ObjectId,
+        userId: cashout.userId as Types.ObjectId,
+        amount,
+        method: "pix",
+        status: "failed",
+        kycStatus: "verified",
+        flags: ["FAILED_ATTEMPT"],
+        description: `Saque não completado pela Zendry — saldo devolvido automaticamente (${reason}).`,
+      });
+    } catch (err) {
+      await session.abortTransaction();
+      console.error(`❌ CRÍTICO: falha ao devolver saldo do saque ${cashoutId.toString()} que não completou:`, err);
+    } finally {
+      session.endSession();
     }
   }
 
