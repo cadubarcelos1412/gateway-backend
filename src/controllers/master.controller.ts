@@ -7,6 +7,7 @@ import { ACQUIRER_KEYS } from "../acquirers";
 import { getOrCreateDefaultFeeConfig, SystemFeeConfig } from "../models/systemFeeConfig.model";
 import { SplitRule } from "../models/splitRule.model";
 import { reconcilePendingZendryPix } from "../services/zendryReconciliation.service";
+import { brazilDateKey, brazilMonthKey } from "../utils/timezone";
 
 /**
  * 🔑 Utilitário — pegar usuário autenticado pelo token e exigir role master.
@@ -107,24 +108,27 @@ export const getKpas = async (_req: Request, res: Response): Promise<void> => {
     // taxa/ticket real. Contar pending/failed aqui já causou "saldo
     // fantasma" idêntico no dashboard do seller (ver correção de wallet em
     // 2026-08-10) — mesmo erro, versão agregada pro master.
+    // "hoje"/"esse mês" no horário de Brasília — o servidor roda em UTC
+    // (Render), então comparar com toDateString()/getMonth() cru contava
+    // como "hoje" vendas que já eram "ontem" pra qualquer um olhando daqui
+    // (achado em 2026-08-12: master via "Hoje: R$1.085,90" com a última
+    // venda da lista datada do dia anterior).
+    const todayKey = brazilDateKey(today);
+    const monthKey = brazilMonthKey(today);
+
     const volumeTotal = approvedTx.reduce((sum, t) => sum + (t.amount || 0), 0);
     const volumeHoje = approvedTx
-      .filter((t) => t.createdAt && new Date(t.createdAt).toDateString() === today.toDateString())
+      .filter((t) => t.createdAt && brazilDateKey(new Date(t.createdAt)) === todayKey)
       .reduce((sum, t) => sum + (t.amount || 0), 0);
 
     const totalUsuarios = users.length;
     const usuariosHoje = users.filter(
-      (u) => u.createdAt && new Date(u.createdAt).toDateString() === today.toDateString()
+      (u) => u.createdAt && brazilDateKey(new Date(u.createdAt)) === todayKey
     ).length;
 
     const totalTaxas = approvedTx.reduce((sum, t) => sum + (t.fee || 0), 0);
     const taxasMensais = approvedTx
-      .filter(
-        (t) =>
-          t.createdAt &&
-          new Date(t.createdAt).getMonth() === today.getMonth() &&
-          new Date(t.createdAt).getFullYear() === today.getFullYear()
-      )
+      .filter((t) => t.createdAt && brazilMonthKey(new Date(t.createdAt)) === monthKey)
       .reduce((sum, t) => sum + (t.fee || 0), 0);
 
     // Taxa de conversão é a única métrica aqui que precisa do TOTAL de

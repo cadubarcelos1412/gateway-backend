@@ -1,0 +1,10 @@
+import "dotenv/config";
+import mongoose from "mongoose";
+await mongoose.connect(process.env.MONGO_URI);
+const Sellers = mongoose.connection.collection("sellers");
+const Users = mongoose.connection.collection("users");
+const user = await Users.findOne({ _id: new mongoose.Types.ObjectId("6a72383c9844e9c841716bd7") });
+console.log("email:", user?.email);
+const seller = await Sellers.findOne({ userId: user._id });
+console.log("autoWithdrawEnabled:", seller?.autoWithdrawEnabled);
+await mongoose.disconnect();

@@ -16,11 +16,17 @@ if (!SECRET || !ISSUER) {
 }
 
 /**
- * 🔐 Cria um JWT válido com expiração de 24h
+ * 🔐 Cria um JWT válido — 24h por padrão, 30 dias com "lembrar-me".
+ *
+ * Antes disso TODO login expirava em 24h sem exceção — o checkbox
+ * "Lembrar-me" só tentava fazer o navegador salvar a senha (Credential
+ * Management API), nunca alterava a duração da sessão em si. Resultado:
+ * mesmo marcando, o usuário caía pra tela de login todo dia. Achado em
+ * 2026-08-12.
  */
-export const createToken = async (payload: TokenPayload): Promise<string> => {
+export const createToken = async (payload: TokenPayload, rememberMe = false): Promise<string> => {
   return jwt.sign(payload, SECRET, {
-    expiresIn: "24h",
+    expiresIn: rememberMe ? "30d" : "24h",
     issuer: ISSUER,
   });
 };

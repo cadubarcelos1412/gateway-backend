@@ -16,7 +16,7 @@ POST /api/users/login
 -------------------------------------------------------- */
 export const loginUser = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { email, password } = req.body;
+    const { email, password, rememberMe } = req.body;
 
     if (!email || !password) {
       res.status(400).json({ status: false, msg: "Email e senha são obrigatórios." });
@@ -58,7 +58,7 @@ export const loginUser = async (req: Request, res: Response): Promise<void> => {
     // checam `twoFactorRequired` antes de decidir o que fazer) — pra
     // reativar: só setar a env var no Render, nenhum código muda.
     if (process.env.LOGIN_2FA_ENABLED !== "true") {
-      const token = await createToken({ id: String(user._id), role: user.role });
+      const token = await createToken({ id: String(user._id), role: user.role }, Boolean(rememberMe));
       res.status(200).json({
         status: true,
         msg: "✅ Login realizado com sucesso.",
@@ -124,7 +124,7 @@ POST /api/users/verify-login-code
 -------------------------------------------------------- */
 export const verifyLoginCode = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { email, code } = req.body;
+    const { email, code, rememberMe } = req.body;
     if (!email || !code) {
       res.status(400).json({ status: false, msg: "Email e código são obrigatórios." });
       return;
@@ -142,7 +142,7 @@ export const verifyLoginCode = async (req: Request, res: Response): Promise<void
       return;
     }
 
-    const token = await createToken({ id: String(user._id), role: user.role });
+    const token = await createToken({ id: String(user._id), role: user.role }, Boolean(rememberMe));
 
     res.status(200).json({
       status: true,
