@@ -499,6 +499,46 @@ export const listMySplitRules = async (req: Request, res: Response): Promise<voi
   }
 };
 
+/* 🤝 Listar as regras de split em que o seller logado é o destinatário —
+   parcerias que OUTRO seller criou apontando pra ele. Sem isso, quem é
+   convidado nunca vê que está recebendo % de ninguém. */
+export const listReceivedSplitRules = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const user = await getUserFromToken(req.headers.authorization);
+    if (!user) {
+      res.status(403).json({ status: false, msg: "Token inválido." });
+      return;
+    }
+
+    const seller = await Seller.findOne({ userId: user._id });
+    if (!seller) {
+      res.status(404).json({ status: false, msg: "Perfil de seller não encontrado." });
+      return;
+    }
+
+    const rules = await SplitRule.find({ recipientSellerId: seller._id })
+      .sort({ createdAt: -1 })
+      .populate("payingSellerId", "name email")
+      .lean();
+
+    const rulesWithPayer = rules.map((r: any) => ({
+      _id: r._id,
+      percentage: r.percentage,
+      description: r.description,
+      status: r.status,
+      createdAt: r.createdAt,
+      payingSeller: r.payingSellerId
+        ? { name: r.payingSellerId.name, email: r.payingSellerId.email }
+        : null,
+    }));
+
+    res.status(200).json({ status: true, rules: rulesWithPayer });
+  } catch (error) {
+    console.error("❌ Erro em listReceivedSplitRules:", error);
+    res.status(500).json({ status: false, msg: "Erro interno ao listar parcerias recebidas." });
+  }
+};
+
 /* 🤝 Criar uma regra de split — o destinatário precisa já ser um seller com KYC aprovado */
 export const createSplitRule = async (req: Request, res: Response): Promise<void> => {
   try {

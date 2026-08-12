@@ -11,6 +11,7 @@ import {
   getSellerFees,
   updateSellerFees,
   listMySplitRules,
+  listReceivedSplitRules,
   createSplitRule,
   revokeSplitRule,
 } from "../controllers/seller.controller";
@@ -46,6 +47,14 @@ router.get("/me", getMySellerProfile);
  */
 router.get("/me/split-rules", listMySplitRules);
 router.post("/me/split-rules", createSplitRule);
+
+/**
+ * @route   GET /api/sellers/me/split-rules/received
+ * @desc    Listar parcerias em que o seller logado é o destinatário (outro
+ *          seller o convidou e roteia % das vendas dele pra cá)
+ * @access  Autenticado (seller)
+ */
+router.get("/me/split-rules/received", listReceivedSplitRules);
 
 /**
  * @route   DELETE /api/sellers/me/split-rules/:id
