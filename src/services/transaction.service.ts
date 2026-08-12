@@ -84,6 +84,19 @@ export class TransactionService {
     const { seller, session, input, ip, userAgent, mode } = params;
     const { amount, method, productId, description, customer, idempotencyKey, card, threedsData, metadata } = input;
 
+    // 🔒 Limite observado, não documentado oficialmente pela Zendry (não há
+    // sandbox confirmado — ver .env): confirmado em 2026-08-12 via log de
+    // auditoria que Pix abaixo de R$5,00 falha com 500 genérico
+    // ("Operation failed! Please try again or contact our support team"),
+    // enquanto R$5,00+ funciona normal. Um teste real de R$1,00 tinha
+    // funcionado em 2026-08-08 (seller diferente) — ou seja, esse valor pode
+    // não ser fixo/documentado pela Zendry; se voltar a mudar, ajuste aqui.
+    if (method === "pix" && amount < 5) {
+      const err = new Error("O valor mínimo para pagamento via Pix é de R$ 5,00.");
+      (err as Error & { code?: string }).code = "amount_below_minimum";
+      throw err;
+    }
+
     // Idempotência (campo interno, dedup por chave independente do header HTTP)
     if (idempotencyKey) {
       const existing = await Transaction.findOne({ idempotencyKey }).lean();

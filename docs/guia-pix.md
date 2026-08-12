@@ -9,6 +9,11 @@ em modo teste (não precisa de dinheiro real para testar o fluxo inteiro).
 Dashboard → Desenvolvedores → Nova chave → tipo `secret`, modo `teste`.
 Copie a chave `sk_test_...` (só aparece uma vez).
 
+> **Valor mínimo:** Pix abaixo de R$ 5,00 (`amount` menor que `500`) é
+> recusado com `amount_below_minimum` — limite observado do lado da
+> adquirente, não documentado oficialmente por ela, então pode mudar sem
+> aviso prévio.
+
 ## 2. Crie a cobrança
 
 ```bash
