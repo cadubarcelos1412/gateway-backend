@@ -19,6 +19,11 @@ export interface ICashoutRequest extends Document {
   approvedBy?: Types.ObjectId;
   approvedAt?: Date;
   rejectionReason?: string;
+  /** "app" (padrão, ausente = app) — saque pedido/enviado por aqui. "manual" —
+   * o master fez o saque direto no painel da Zendry (workaround enquanto a
+   * Zendry está instável) e só está registrando aqui pra manter o saldo
+   * batendo com o real, ver CashoutService.recordManualWithdrawal. */
+  origin?: "app" | "manual";
 
   /** Trilho do saque — "pix" (padrão, fluxo manual existente) ou "usdt" (Zendry, automático). */
   rail: "pix" | "usdt";
@@ -68,6 +73,7 @@ const CashoutRequestSchema = new Schema<ICashoutRequest>(
     approvedBy: { type: Schema.Types.ObjectId, ref: "User" },
     approvedAt: { type: Date },
     rejectionReason: { type: String },
+    origin: { type: String, enum: ["app", "manual"] },
 
     rail: { type: String, enum: ["pix", "usdt"], default: "pix", required: true },
     destinationAddress: { type: String, trim: true },

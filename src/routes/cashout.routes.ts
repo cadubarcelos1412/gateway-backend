@@ -6,6 +6,7 @@ import {
   listCashoutRequests,
   approveCashoutRequest,
   rejectCashoutRequest,
+  recordManualCashout,
 } from "../controllers/cashout.controller";
 
 const router = Router();
@@ -58,5 +59,15 @@ router.post("/:id/approve", approveCashoutRequest);
  * @access Protegido
  */
 router.post("/:id/reject", rejectCashoutRequest);
+
+/**
+ * @route POST /api/cashouts/manual
+ * @desc Registrar um saque feito direto no painel da Zendry, fora do app
+ *       (admin/master) — workaround enquanto a Zendry está instável, só pra
+ *       manter o saldo interno batendo com o real. Ver
+ *       CashoutService.recordManualWithdrawal.
+ * @access Protegido (admin/master)
+ */
+router.post("/manual", recordManualCashout);
 
 export default router;

@@ -329,6 +329,116 @@ export class CashoutService {
   }
 
   /**
+   * 2️⃣b Registra um saque que foi feito DIRETO no painel da Zendry (fora do
+   * nosso app) — workaround usado enquanto a Zendry está instável e o envio
+   * automático não é confiável. O dinheiro já saiu de verdade lá; isso aqui
+   * só faz o saldo interno bater com o que realmente sobrou na Zendry,
+   * debitando e lançando no ledger exatamente como um saque normal
+   * aprovado, sem tentar mandar Pix nenhum (já foi enviado manualmente).
+   *
+   * `netAmount`/`fee` vêm digitados por quem está registrando (master),
+   * lendo direto da tela da Zendry — não recalculamos com a taxa
+   * configurada no sistema, porque o que importa aqui é bater com a
+   * realidade, não com o que a gente esperava cobrar.
+   */
+  static async recordManualWithdrawal(
+    userId: Types.ObjectId,
+    netAmount: number,
+    fee: number,
+    adminId: Types.ObjectId,
+    note?: string
+  ) {
+    if (netAmount <= 0) throw new Error("Valor recebido precisa ser maior que zero.");
+    if (fee < 0) throw new Error("Taxa não pode ser negativa.");
+
+    const amount = round2(netAmount + fee);
+
+    const session = await mongoose.startSession();
+    session.startTransaction();
+    try {
+      const wallet = await Wallet.findOne({ userId }).session(session);
+      if (!wallet) throw new Error("Carteira não encontrada.");
+      await releaseMaturedBalance(wallet, session);
+
+      if (wallet.balance.available < amount) {
+        throw new Error(
+          `Saldo insuficiente — disponível: R$${wallet.balance.available.toFixed(2)}, tentando registrar R$${amount.toFixed(2)}.`
+        );
+      }
+
+      wallet.balance.available = round2(wallet.balance.available - amount);
+      wallet.log.push({
+        transactionId: new mongoose.Types.ObjectId(),
+        type: "withdraw",
+        method: "pix",
+        amount,
+        security: {
+          createdAt: new Date(),
+          ipAddress: "system",
+          userAgent: "manual-withdrawal-zendry",
+          approvedBy: adminId,
+        },
+      });
+      await wallet.save({ session });
+
+      const [cashout] = await CashoutRequest.create(
+        [
+          {
+            userId,
+            amount,
+            fee,
+            netAmount: round2(netAmount),
+            status: "completed",
+            origin: "manual",
+            rail: "pix",
+            approvedBy: adminId,
+            approvedAt: new Date(),
+            providerStatus: `Registrado manualmente pelo master — saque feito direto no painel da Zendry.${note ? ` Nota: ${note}` : ""}`,
+          },
+        ],
+        { session }
+      );
+
+      await postLedgerEntries(
+        [
+          { account: "passivo_seller", type: "debit", amount },
+          { account: "conta_corrente_bancaria", type: "credit", amount: netAmount },
+          ...(fee > 0 ? [{ account: "receita_taxa_kissa", type: "credit" as const, amount: fee }] : []),
+        ],
+        {
+          idempotencyKey: `cashout_manual:${(cashout._id as Types.ObjectId).toString()}`,
+          transactionId: (cashout._id as Types.ObjectId).toString(),
+          sellerId: userId.toString(),
+          source: { system: "cashout", acquirer: "zendry" },
+          eventAt: new Date(),
+        },
+        session
+      );
+
+      await session.commitTransaction();
+
+      await TransactionAuditService.log({
+        transactionId: cashout._id as Types.ObjectId,
+        sellerId: userId,
+        userId,
+        amount,
+        method: "pix",
+        status: "approved",
+        kycStatus: "verified",
+        flags: [],
+        description: `Saque manual registrado (feito direto na Zendry) por admin ${adminId.toString()}.`,
+      });
+
+      return cashout;
+    } catch (err) {
+      await session.abortTransaction();
+      throw err;
+    } finally {
+      session.endSession();
+    }
+  }
+
+  /**
    * 3️⃣ Rejeitar solicitação de saque
    */
   static async rejectCashout(

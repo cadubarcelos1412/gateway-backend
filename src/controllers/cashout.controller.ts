@@ -247,6 +247,7 @@ export const listMyCashoutRequests = async (req: Request, res: Response): Promis
         amount: r.amount,
         fee: r.fee ?? null,
         netAmount: r.netAmount ?? null,
+        origin: r.origin || "app",
         status: r.status,
         rail: r.rail,
         pixKeyType: r.pixKeyType || null,
@@ -293,6 +294,7 @@ export const listCashoutRequests = async (req: Request, res: Response): Promise<
         amount: r.amount,
         fee: r.fee ?? null,
         netAmount: r.netAmount ?? null,
+        origin: r.origin || "app",
         status: r.status,
         rail: r.rail,
         pixKeyType: r.pixKeyType || null,
@@ -419,5 +421,69 @@ export const rejectCashoutRequest = async (req: Request, res: Response): Promise
     res.status(500).json({ status: false, msg: error.message || "Erro ao rejeitar saque." });
   } finally {
     session.endSession();
+  }
+};
+
+/* -------------------------------------------------------------------------- */
+/* ✍️ 5️⃣ Registrar saque feito manualmente no painel da Zendry (admin/master) */
+/* -------------------------------------------------------------------------- */
+/**
+ * Workaround pra enquanto a Zendry está instável: o master faz o saque
+ * direto no painel deles (fora do nosso app) e usa isso aqui só pra manter
+ * o saldo interno batendo com o que realmente saiu de lá. Não manda Pix
+ * nenhum — o dinheiro já saiu de verdade antes de chegar nessa tela.
+ */
+export const recordManualCashout = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const token = req.headers.authorization?.replace("Bearer ", "") ?? "";
+    const payload = await decodeToken(token);
+
+    if (!payload || !["admin", "master"].includes(payload.role)) {
+      res.status(403).json({ status: false, msg: "Acesso negado. Somente admins podem registrar saque manual." });
+      return;
+    }
+
+    const { sellerEmail, netAmount, fee, note } = req.body;
+
+    if (!sellerEmail || typeof sellerEmail !== "string") {
+      res.status(400).json({ status: false, msg: "E-mail do seller é obrigatório." });
+      return;
+    }
+    if (typeof netAmount !== "number" || netAmount <= 0) {
+      res.status(400).json({ status: false, msg: "Valor recebido pelo seller (na Zendry) é obrigatório." });
+      return;
+    }
+    if (typeof fee !== "number" || fee < 0) {
+      res.status(400).json({ status: false, msg: "Taxa cobrada pela Zendry é obrigatória (pode ser 0)." });
+      return;
+    }
+
+    const user = await User.findOne({ email: sellerEmail.toLowerCase().trim() });
+    if (!user) {
+      res.status(404).json({ status: false, msg: "Nenhum usuário encontrado com esse e-mail." });
+      return;
+    }
+
+    const cashout = await CashoutService.recordManualWithdrawal(
+      user._id as Types.ObjectId,
+      netAmount,
+      fee,
+      new Types.ObjectId(payload.id),
+      typeof note === "string" ? note : undefined
+    );
+
+    res.status(201).json({
+      status: true,
+      msg: "✅ Saque manual registrado — saldo ajustado.",
+      data: {
+        cashoutId: (cashout._id as Types.ObjectId).toString(),
+        amount: cashout.amount,
+        fee: cashout.fee,
+        netAmount: cashout.netAmount,
+      },
+    });
+  } catch (error: any) {
+    console.error("❌ Erro em recordManualCashout:", error);
+    res.status(500).json({ status: false, msg: error.message || "Erro ao registrar saque manual." });
   }
 };
