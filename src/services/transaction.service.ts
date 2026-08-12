@@ -294,9 +294,22 @@ export class TransactionService {
     // registrado aqui (em metadata.splits) — o crédito de verdade pro
     // seller e pros parceiros só acontece quando a transação é
     // CONFIRMADA (ver applyZendryPaymentStatus), nunca nesta criação.
+    // Nome do destinatário é "snapshotado" aqui (igual recipientEmail no
+    // SplitRule) pra Vendas/Dashboard do pagador mostrarem "repassado pra
+    // Fulano" sem precisar de join toda vez que listam transações.
     const splitRules = await SplitRule.find({ payingSellerId: seller._id, status: "active" }).session(session);
+    const recipientSellersById = splitRules.length
+      ? new Map(
+          (
+            await Seller.find({ _id: { $in: splitRules.map((r) => r.recipientSellerId) } })
+              .select("name")
+              .session(session)
+          ).map((s) => [String(s._id), s.name])
+        )
+      : new Map<string, string>();
     const splitAllocations = splitRules.map((rule) => ({
       recipientSellerId: rule.recipientSellerId as Types.ObjectId,
+      recipientName: recipientSellersById.get(String(rule.recipientSellerId)) || rule.recipientEmail,
       percentage: rule.percentage,
       amount: round(netAmount * (rule.percentage / 100)),
     }));

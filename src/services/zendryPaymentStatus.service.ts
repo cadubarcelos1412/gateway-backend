@@ -16,6 +16,7 @@ interface ApplyResult {
 
 interface SplitAllocation {
   recipientSellerId: string;
+  recipientName?: string;
   percentage: number;
   amount: number;
 }
@@ -106,6 +107,45 @@ async function creditTransactionLedgerAndWallet(transaction: ITransaction, sessi
         security: { createdAt: new Date(), ipAddress: "system", userAgent: "payment-confirmation" },
       });
       await recipientWallet.save({ session });
+
+      // 📊 Registro só de leitura pra Vendas/Dashboard do destinatário — até
+      // aqui (2026-08-12) o repasse de parceria só existia como
+      // wallet.log/balance.unAvailable, então o saldo subia mas não
+      // aparecia em nenhum lugar como venda. Não passa por
+      // createTransactionCore (não é um pagamento novo, é reporting puro),
+      // então não gera fee/split-de-split nem mexe no ledger de novo — o
+      // crédito de verdade já aconteceu acima.
+      await Transaction.create(
+        [
+          {
+            userId: recipientUserId,
+            amount: allocation.amount,
+            fee: 0,
+            netAmount: allocation.amount,
+            retention: 0,
+            retentionDays: 0,
+            type: "deposit",
+            method: transaction.method,
+            status: "approved",
+            mode: "live",
+            description: `Repasse de parceria de ${seller.name}`,
+            externalId: `${transaction.externalId || txId.toString()}:split:${String(allocation.recipientSellerId)}`,
+            createdAt: new Date(),
+            creditedAt: new Date(),
+            metadata: {
+              source: "partner_split",
+              splitFrom: {
+                payingSellerId: String(seller._id),
+                payingSellerName: seller.name,
+                percentage: allocation.percentage,
+                originalAmount: transaction.amount,
+                originalTransactionId: txId.toString(),
+              },
+            },
+          },
+        ],
+        { session }
+      );
     }
   }
 

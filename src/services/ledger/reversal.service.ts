@@ -1,5 +1,5 @@
 import { ClientSession, Types } from "mongoose";
-import { ITransaction } from "../../models/transaction.model";
+import { ITransaction, Transaction } from "../../models/transaction.model";
 import { Wallet, IWallet } from "../../models/wallet.model";
 import { Seller } from "../../models/seller.model";
 import { postLedgerEntries } from "./ledger.service";
@@ -136,6 +136,16 @@ export async function reverseTransactionLedgerAndWallet(
       if (!recipientWallet) continue;
 
       await debitWalletForTransaction(recipientWallet, txId, allocation.amount, session, methodForLog);
+
+      // Espelha em failed o registro de "renda de parceria" criado em
+      // creditTransactionLedgerAndWallet — senão o repasse revertido
+      // continua aparecendo como venda aprovada em Vendas/Dashboard do
+      // destinatário mesmo depois do dinheiro ter sido tirado da wallet dele.
+      await Transaction.updateOne(
+        { externalId: `${transaction.externalId || txId.toString()}:split:${String(allocation.recipientSellerId)}` },
+        { $set: { status: "failed", reversedAt: new Date() } },
+        { session }
+      );
     }
   }
 
