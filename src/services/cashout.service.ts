@@ -22,7 +22,7 @@ export class CashoutService {
    */
   static async createCashout(
     userId: Types.ObjectId,
-    amount: number,
+    desiredAmount: number,
     session?: ClientSession,
     pixKeyInfo?: { type: "cpf" | "cnpj" | "email" | "phone" | "random"; key: string; holderName?: string; holderDocument?: string }
   ) {
@@ -34,18 +34,28 @@ export class CashoutService {
     // não consegue sacar mesmo já tendo passado do prazo.
     await releaseMaturedBalance(wallet, session);
 
-    if (wallet.balance.available < amount) throw new Error("Saldo insuficiente para saque.");
-
-    // 💸 Taxa de Pix OUT — igual ao saque em USDT (createCryptoCashout) já
-    // fazia, mas o saque em Pix nunca calculava nada aqui: mandava pra
-    // Zendry o valor cheio, sem capturar margem nenhuma. Achado em
-    // 2026-08-11 comparando o saldo interno com o saldo real na Zendry (a
-    // diferença era exatamente a soma das taxas de saque nunca cobradas).
+    // 💸 Taxa de Pix OUT — decisão do produto em 2026-08-12: a taxa soma
+    // EM CIMA do valor que o seller pede (ele diz quanto quer RECEBER, não
+    // quanto quer ver debitado). Antes disso a taxa saía do próprio valor
+    // pedido — mudou porque, na cabeça do seller, pedir R$3.900 tendo
+    // R$3.900 de saldo tinha que ser sempre possível; com a taxa saindo de
+    // cima, quem "sobra" pra cobrir a taxa é o próprio saldo, não o valor
+    // pedido, então o máximo que dá pra pedir fica abaixo do saldo total.
     const seller = await Seller.findOne({ userId });
     const pixOut = seller?.feeTable?.pixOut ?? DEFAULT_FEE_TABLE.pixOut;
-    const fee = round2(pixOut.fixed + (amount * pixOut.percentage) / 100);
-    const netAmount = round2(amount - fee);
-    if (netAmount <= 0) throw new Error("Valor de saque muito baixo para cobrir a taxa.");
+    const fee = round2(pixOut.fixed + (desiredAmount * pixOut.percentage) / 100);
+    // amount = total que sai do saldo (o que o seller recebe + a taxa) —
+    // netAmount = exatamente o que foi pedido/será entregue. Mantém o
+    // mesmo invariante amount = netAmount + fee que approveCashout,
+    // sendApprovedPixPayout, refundFailedPixPayout e rejectCashout já
+    // assumem, então nenhum deles precisou mudar.
+    const amount = round2(desiredAmount + fee);
+
+    if (wallet.balance.available < amount) {
+      throw new Error(
+        `Saldo insuficiente pra cobrir esse saque mais a taxa. Com a taxa de Pix out, o máximo que dá pra pedir agora é R$${round2((wallet.balance.available - pixOut.fixed) / (1 + pixOut.percentage / 100)).toFixed(2).replace(".", ",")}.`
+      );
+    }
 
     // ❄️ Congela o valor solicitado — só isso já impede o seller de gastar
     // ou sacar de novo o mesmo dinheiro enquanto a solicitação está em
@@ -68,7 +78,7 @@ export class CashoutService {
           userId,
           amount,
           fee,
-          netAmount,
+          netAmount: round2(desiredAmount),
           status: "pending",
           pixKeyType: pixKeyInfo?.type,
           pixKey: pixKeyInfo?.key,
