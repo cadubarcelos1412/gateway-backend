@@ -8,6 +8,7 @@ import { Transaction } from "../models/transaction.model";
 import { ACQUIRER_KEYS } from "../acquirers";
 import { getOrCreateDefaultFeeConfig } from "../models/systemFeeConfig.model";
 import { SplitRule } from "../models/splitRule.model";
+import { sendPartnershipInviteEmail } from "../services/email.service";
 
 /**
  * Agrega vendas/receita (só transações "deposit" aprovadas) por userId —
@@ -587,12 +588,18 @@ export const createSplitRule = async (req: Request, res: Response): Promise<void
       return;
     }
 
-    const activeRules = await SplitRule.find({ payingSellerId: payingSeller._id, status: "active" });
-    const currentTotal = activeRules.reduce((sum, r) => sum + r.percentage, 0);
+    // Conta pending + active — um convite ainda não aceito já reserva a
+    // fatia, senão dois convites de 60% cada passariam os dois na criação
+    // (nenhum "active" ainda) e, se os dois forem aceitos, estouram 100%.
+    const reservedRules = await SplitRule.find({
+      payingSellerId: payingSeller._id,
+      status: { $in: ["active", "pending"] },
+    });
+    const currentTotal = reservedRules.reduce((sum, r) => sum + r.percentage, 0);
     if (currentTotal + Number(percentage) > 100) {
       res.status(400).json({
         status: false,
-        msg: `A soma das parcerias ativas não pode passar de 100%. Hoje: ${currentTotal}%, disponível: ${round100(100 - currentTotal)}%.`,
+        msg: `A soma das parcerias ativas/pendentes não pode passar de 100%. Hoje: ${currentTotal}%, disponível: ${round100(100 - currentTotal)}%.`,
       });
       return;
     }
@@ -603,14 +610,88 @@ export const createSplitRule = async (req: Request, res: Response): Promise<void
       recipientEmail: email,
       percentage: Number(percentage),
       description: description ? String(description).trim() : undefined,
-      status: "active",
+      status: "pending",
       createdBy: user._id,
     });
 
-    res.status(201).json({ status: true, msg: "✅ Parceria criada com sucesso.", rule });
+    // Convite por e-mail é best-effort — a parceria já existe como pending e
+    // aparece pro destinatário dentro do app mesmo se o e-mail falhar.
+    try {
+      const actionUrl = `${(process.env.FRONTEND_URL || "https://www.pyxgate.com").replace(/\/$/, "")}/#/dashboard/split-rules`;
+      await sendPartnershipInviteEmail(recipientSeller.email, payingSeller.name, Number(percentage), actionUrl);
+    } catch (emailErr) {
+      console.error("⚠️ Falha ao enviar e-mail de convite de parceria:", emailErr);
+    }
+
+    res.status(201).json({
+      status: true,
+      msg: "✅ Convite de parceria enviado! Assim que o destinatário aceitar, o split passa a valer.",
+      rule,
+    });
   } catch (error) {
     console.error("❌ Erro em createSplitRule:", error);
     res.status(500).json({ status: false, msg: "Erro interno ao criar parceria." });
+  }
+};
+
+/* 🤝 Aceitar ou recusar um convite de parceria recebido */
+export const respondSplitRule = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const user = await getUserFromToken(req.headers.authorization);
+    if (!user) {
+      res.status(403).json({ status: false, msg: "Token inválido." });
+      return;
+    }
+
+    const seller = await Seller.findOne({ userId: user._id });
+    if (!seller) {
+      res.status(404).json({ status: false, msg: "Perfil de seller não encontrado." });
+      return;
+    }
+
+    const { id } = req.params;
+    const { accept } = req.body as { accept?: boolean };
+
+    if (!Types.ObjectId.isValid(id)) {
+      res.status(400).json({ status: false, msg: "ID de parceria inválido." });
+      return;
+    }
+    if (typeof accept !== "boolean") {
+      res.status(400).json({ status: false, msg: "Campo 'accept' (true/false) é obrigatório." });
+      return;
+    }
+
+    const rule = await SplitRule.findOne({ _id: id, recipientSellerId: seller._id, status: "pending" });
+    if (!rule) {
+      res.status(404).json({ status: false, msg: "Convite não encontrado ou já respondido." });
+      return;
+    }
+
+    if (!accept) {
+      rule.status = "rejected";
+      await rule.save();
+      res.status(200).json({ status: true, msg: "Convite recusado.", rule });
+      return;
+    }
+
+    // Reconfere o teto de 100% do pagador na hora de aceitar — outro convite
+    // dele pode ter sido aceito nesse meio-tempo.
+    const activeRules = await SplitRule.find({ payingSellerId: rule.payingSellerId, status: "active" });
+    const currentTotal = activeRules.reduce((sum, r) => sum + r.percentage, 0);
+    if (currentTotal + rule.percentage > 100) {
+      res.status(409).json({
+        status: false,
+        msg: "Quem te convidou não tem mais % disponível pra essa parceria agora. Fale com ele.",
+      });
+      return;
+    }
+
+    rule.status = "active";
+    await rule.save();
+    res.status(200).json({ status: true, msg: "✅ Parceria aceita! O split já está valendo.", rule });
+  } catch (error) {
+    console.error("❌ Erro em respondSplitRule:", error);
+    res.status(500).json({ status: false, msg: "Erro interno ao responder convite." });
   }
 };
 

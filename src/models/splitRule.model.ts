@@ -3,7 +3,9 @@
 // que é roteado automaticamente pro seller destinatário em toda venda futura.
 import mongoose, { Schema, Document, Types } from "mongoose";
 
-export type SplitRuleStatus = "active" | "revoked";
+// pending: convite criado, aguardando o destinatário aceitar ou recusar —
+// só entra no split de vendas de verdade quando vira "active".
+export type SplitRuleStatus = "pending" | "active" | "revoked" | "rejected";
 
 export interface ISplitRule extends Document {
   payingSellerId: Types.ObjectId;
@@ -24,7 +26,7 @@ const SplitRuleSchema = new Schema<ISplitRule>(
     recipientEmail: { type: String, required: true, trim: true, lowercase: true },
     percentage: { type: Number, required: true, min: 0.01, max: 100 },
     description: { type: String, trim: true },
-    status: { type: String, enum: ["active", "revoked"], default: "active", index: true },
+    status: { type: String, enum: ["pending", "active", "revoked", "rejected"], default: "pending", index: true },
     createdBy: { type: Schema.Types.ObjectId, ref: "User", required: true },
   },
   { timestamps: true, versionKey: false }

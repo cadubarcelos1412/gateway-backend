@@ -13,6 +13,7 @@ import {
   listMySplitRules,
   listReceivedSplitRules,
   createSplitRule,
+  respondSplitRule,
   revokeSplitRule,
 } from "../controllers/seller.controller";
 
@@ -55,6 +56,14 @@ router.post("/me/split-rules", createSplitRule);
  * @access  Autenticado (seller)
  */
 router.get("/me/split-rules/received", listReceivedSplitRules);
+
+/**
+ * @route   PATCH /api/sellers/me/split-rules/:id/respond
+ * @desc    Aceitar ({accept:true}) ou recusar ({accept:false}) um convite de
+ *          parceria recebido — só o destinatário pode responder
+ * @access  Autenticado (seller)
+ */
+router.patch("/me/split-rules/:id/respond", respondSplitRule);
 
 /**
  * @route   DELETE /api/sellers/me/split-rules/:id
