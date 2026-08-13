@@ -95,12 +95,11 @@ export const getMyTransactions = async (req: Request, res: Response): Promise<vo
   if (!userId) return;
 
   try {
-    // Repasse de parceria (metadata.source: "partner_split") não é uma venda
-    // própria — fica de fora daqui pra não misturar com Vendas/Dashboard.
-    // Tem endpoint dedicado: GET /user/split-transactions.
-    const transactions = await Transaction.find({ userId, "metadata.source": { $ne: "partner_split" } })
-      .sort({ createdAt: -1 })
-      .lean();
+    // Repasse de parceria (metadata.source: "partner_split") volta a
+    // aparecer aqui — o destinatário PRECISA ver isso em Vendas/Dashboard
+    // (só não é uma "venda própria" dele, por isso vem sempre marcado com
+    // esse source, pro frontend distinguir/filtrar visualmente).
+    const transactions = await Transaction.find({ userId }).sort({ createdAt: -1 }).lean();
     res.status(200).json({ status: true, transactions });
   } catch (err) {
     console.error("❌ Erro em getMyTransactions:", err);
