@@ -1,4 +1,3 @@
-import crypto from "crypto";
 import { Transaction } from "../models/transaction.model";
 import { Seller } from "../models/seller.model";
 import { zendryFetchWithRetry } from "../lib/zendry/client";
@@ -16,16 +15,17 @@ interface ZendryQrcodesPage {
 }
 
 /**
- * 🚦 Chave liga/desliga da confirmação Pix ao vivo (decisão de negócio, não
- * técnica). Revertido em 2026-08-09: cliente pagou a implementação, então
- * confirmação volta a ser instantânea de novo (estava com delay proposital
- * de 5-10min desde 2026-08-09 como alavanca comercial). Com true,
- * refreshPendingPixIfNeeded volta a checar a Zendry ao vivo (throttlado) em
- * toda consulta de status — consultTransactionByID e getPayment já chamam
- * essa função. Se precisar desligar nesse mesmo cenário de novo: só trocar
- * pra false, nenhum outro código muda (o reconciliador em lote assume como
- * único mecanismo, com o delay-alvo por transação em
- * pixConfirmationDelayMinutes abaixo).
+ * 🚦 Liga/desliga a confirmação Pix ao vivo — com true, refreshPendingPixIfNeeded
+ * checa a Zendry ao vivo (throttlado) em toda consulta de status
+ * (consultTransactionByID e getPayment já chamam essa função).
+ *
+ * Existiu uma trava de atraso proposital (5-10min, "alavanca comercial")
+ * pensada pra quando isso estivesse false. Removida em 2026-08-13: além de
+ * não ser mais desejada, ficou esquecida ligada mesmo com LIVE_CHECK_ENABLED
+ * já revertido pra true em 09/08, e virou o teto real de confirmação de
+ * pagamentos de verdade por dias sem ninguém perceber. Confirmação de Pix
+ * agora é sempre o mais rápido que o live-check + reconciliação em lote
+ * conseguirem, sem atraso artificial nenhum, ponto final.
  */
 const LIVE_CHECK_ENABLED = true;
 
@@ -46,26 +46,6 @@ const LIVE_CHECK_ENABLED = true;
 const MIN_AGE_MINUTES = 0.5;
 const MAX_PAGES = 10;
 
-/**
- * 🚦 Decisão de negócio, não técnica — só entra em jogo quando
- * LIVE_CHECK_ENABLED=false (ver acima). Nesse modo, quem determina quando
- * um Pix "pending" vira "paid"/"failed" pro nosso sistema é só a
- * reconciliação em lote. Cada transação recebe um delay-alvo aleatório
- * (mas determinístico — mesma transação sempre cai no mesmo valor) entre 5
- * e 10 minutos, derivado de um hash do próprio id. Isso evita dois
- * problemas de uma janela de corte fixa: (1) todo mundo confirmando
- * exatamente no mesmo instante do relógio, o que pareceria um lote/batch
- * óbvio, e (2) transações "com sorte" que caem logo depois de uma rodada
- * confirmando quase instantâneo. Com LIVE_CHECK_ENABLED=true, essa função
- * quase nunca chega a barrar nada de verdade — a transação já foi
- * confirmada pelo live-check antes de aparecer aqui.
- */
-function pixConfirmationDelayMinutes(transactionId: string): number {
-  const hash = crypto.createHash("md5").update(transactionId).digest();
-  const fraction = hash.readUInt32BE(0) / 0xffffffff; // 0..1, determinístico por id
-  return 5 + fraction * 5; // 5.0 a 10.0 minutos
-}
-
 export interface ReconciliationResult {
   checked: number;
   updated: number;
@@ -74,11 +54,9 @@ export interface ReconciliationResult {
 
 // Checagem sob demanda de UMA transação — usada pelo consultTransactionByID,
 // que o front chama a cada 1s enquanto o comprador espera confirmar o Pix na
-// tela de checkout. Diferente da varredura em lote (que respeita o
-// delay-alvo de cada transação, ver pixConfirmationDelayMinutes), aqui o
-// comprador está literalmente esperando na tela agora, então
-// checa direto, sem esperar idade mínima — só limita a 3 páginas (a
-// transação sendo consultada é sempre recente, deve estar no topo da lista)
+// tela de checkout. O comprador está literalmente esperando na tela agora,
+// então checa direto, sem esperar idade mínima nenhuma — só limita a 3
+// páginas (a transação sendo consultada é sempre recente, deve estar no topo da lista)
 // pra não fazer uma varredura cara a cada segundo. Throttle de quem chama
 // fica por conta do caller (ver lastLiveCheckAt em transaction.controller.ts).
 const SINGLE_CHECK_MAX_PAGES = 3;
@@ -196,23 +174,6 @@ export async function reconcilePendingZendryPix(): Promise<ReconciliationResult>
 
       const mappedStatus = mapZendryStatus(qr.status);
       if (mappedStatus === "pending") continue; // ainda não resolvido de verdade na Zendry
-
-      // 🐛 Achado em 2026-08-13: esse delay-alvo (5-10min, ver comentário na
-      // definição de pixConfirmationDelayMinutes) só devia valer com
-      // LIVE_CHECK_ENABLED=false — mas o `continue` abaixo rodava sempre,
-      // mesmo com LIVE_CHECK_ENABLED=true. Como o live-check também estava
-      // silenciosamente falhando em erro transitório da Zendry (mesmo bug
-      // corrigido em checkSingleZendryPix hoje), essa trava "de alavanca
-      // comercial" acabou virando o atraso real de confirmação de todo
-      // mundo — pedidos reais levando 8-10min pra confirmar, batendo
-      // exatamente com esse intervalo.
-      if (!LIVE_CHECK_ENABLED) {
-        const tx = pendingByExternalId.get(qr.reference_code);
-        if (tx) {
-          const ageMinutes = (Date.now() - tx.createdAt.getTime()) / 60_000;
-          if (ageMinutes < pixConfirmationDelayMinutes(String(tx._id))) continue; // ainda não bateu o delay-alvo desta transação — tenta de novo no próximo ciclo
-        }
-      }
 
       try {
         const applyResult = await applyZendryPaymentStatus(qr.reference_code, mappedStatus);
