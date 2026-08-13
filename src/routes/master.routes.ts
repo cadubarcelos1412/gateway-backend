@@ -6,6 +6,7 @@ import {
   validateMasterToken,
   getMostSaleProducts,
   listTransactions,
+  listSplitTransactions,
   listAcquirers,
   getDefaultFees,
   updateDefaultFees,
@@ -55,6 +56,7 @@ router.get("/top-products", requireMasterMiddleware, getMostSaleProducts);
  * Lista as transações mais recentes da plataforma
  */
 router.get("/transactions", requireMasterMiddleware, listTransactions);
+router.get("/split-transactions", requireMasterMiddleware, listSplitTransactions);
 
 /**
  * 🏦 GET /api/master/acquirers

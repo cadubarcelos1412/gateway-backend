@@ -95,11 +95,37 @@ export const getMyTransactions = async (req: Request, res: Response): Promise<vo
   if (!userId) return;
 
   try {
-    const transactions = await Transaction.find({ userId }).sort({ createdAt: -1 }).lean();
+    // Repasse de parceria (metadata.source: "partner_split") não é uma venda
+    // própria — fica de fora daqui pra não misturar com Vendas/Dashboard.
+    // Tem endpoint dedicado: GET /user/split-transactions.
+    const transactions = await Transaction.find({ userId, "metadata.source": { $ne: "partner_split" } })
+      .sort({ createdAt: -1 })
+      .lean();
     res.status(200).json({ status: true, transactions });
   } catch (err) {
     console.error("❌ Erro em getMyTransactions:", err);
     res.status(500).json({ status: false, msg: "Erro interno ao buscar transações." });
+  }
+};
+
+/**
+ * GET /api/user/split-transactions
+ * Só os repasses de parceria recebidos pelo seller logado — separado de
+ * getMyTransactions pra não misturar "venda própria" com "recebido via
+ * parceria de outro seller" em Vendas/Dashboard.
+ */
+export const getMySplitTransactions = async (req: Request, res: Response): Promise<void> => {
+  const userId = await getAuthUserId(req, res);
+  if (!userId) return;
+
+  try {
+    const transactions = await Transaction.find({ userId, "metadata.source": "partner_split" })
+      .sort({ createdAt: -1 })
+      .lean();
+    res.status(200).json({ status: true, transactions });
+  } catch (err) {
+    console.error("❌ Erro em getMySplitTransactions:", err);
+    res.status(500).json({ status: false, msg: "Erro interno ao buscar repasses de parceria." });
   }
 };
 

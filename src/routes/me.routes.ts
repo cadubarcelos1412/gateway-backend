@@ -3,6 +3,7 @@ import {
   getMe,
   getMyWallet,
   getMyTransactions,
+  getMySplitTransactions,
   getMyProducts,
   getMyCheckouts,
   getMyCredentials,
@@ -21,6 +22,7 @@ const router = Router();
 router.get("/me", getMe);
 router.get("/wallet", getMyWallet);
 router.get("/transactions", getMyTransactions);
+router.get("/split-transactions", getMySplitTransactions);
 router.get("/products", getMyProducts);
 router.get("/checkouts", getMyCheckouts);
 router.get("/credentials", getMyCredentials);

@@ -18,7 +18,8 @@ import { sendPartnershipInviteEmail } from "../services/email.service";
  */
 async function getSellerStatsByUserId(userIds: Types.ObjectId[]): Promise<Map<string, { totalSales: number; totalRevenue: number }>> {
   const rows = await Transaction.aggregate([
-    { $match: { userId: { $in: userIds }, type: "deposit", status: "approved" } },
+    // Repasse de parceria não conta como venda própria do destinatário.
+    { $match: { userId: { $in: userIds }, type: "deposit", status: "approved", "metadata.source": { $ne: "partner_split" } } },
     { $group: { _id: "$userId", totalSales: { $sum: 1 }, totalRevenue: { $sum: "$amount" } } },
   ]);
   return new Map(rows.map((r) => [String(r._id), { totalSales: r.totalSales, totalRevenue: r.totalRevenue }]));

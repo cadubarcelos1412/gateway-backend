@@ -96,9 +96,11 @@ export const getKpas = async (_req: Request, res: Response): Promise<void> => {
   try {
     const today = new Date();
 
-    // 📦 Busca dados
+    // 📦 Busca dados — repasse de parceria (metadata.source: "partner_split")
+    // fica de fora: é o MESMO dinheiro da venda original já contado, incluir
+    // aqui contaria o volume da plataforma em dobro.
     const [transactions, users] = await Promise.all([
-      Transaction.find().lean(),
+      Transaction.find({ "metadata.source": { $ne: "partner_split" } }).lean(),
       User.find().lean(),
     ]);
 
@@ -182,7 +184,11 @@ export const getAnalytics = async (req: Request, res: Response): Promise<void> =
     since.setDate(since.getDate() - (days - 1));
     since.setHours(0, 0, 0, 0);
 
-    const transactions = await Transaction.find({ type: "deposit", createdAt: { $gte: since } }).lean();
+    const transactions = await Transaction.find({
+      type: "deposit",
+      createdAt: { $gte: since },
+      "metadata.source": { $ne: "partner_split" }, // mesmo dinheiro da venda original — não contar em dobro
+    }).lean();
 
     // 📅 Receita diária — bucket por dia, separado por status (aprovado/pendente/falhou)
     const dayMap = new Map<string, { revenue: number; pending: number; failed: number }>();
@@ -226,8 +232,8 @@ export const getAnalytics = async (req: Request, res: Response): Promise<void> =
     const startCurrentMonth = new Date(now.getFullYear(), now.getMonth(), 1);
     const startLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
     const [currentMonthTx, lastMonthTx] = await Promise.all([
-      Transaction.find({ type: "deposit", status: "approved", createdAt: { $gte: startCurrentMonth } }).lean(),
-      Transaction.find({ type: "deposit", status: "approved", createdAt: { $gte: startLastMonth, $lt: startCurrentMonth } }).lean(),
+      Transaction.find({ type: "deposit", status: "approved", createdAt: { $gte: startCurrentMonth }, "metadata.source": { $ne: "partner_split" } }).lean(),
+      Transaction.find({ type: "deposit", status: "approved", createdAt: { $gte: startLastMonth, $lt: startCurrentMonth }, "metadata.source": { $ne: "partner_split" } }).lean(),
     ]);
 
     const monthlyComparison = {
@@ -270,7 +276,10 @@ export const listTransactions = async (req: Request, res: Response): Promise<voi
     const limit = Math.min(Number(req.query.limit) || 20, 200);
     const status = req.query.status as string | undefined;
 
-    const query: Record<string, unknown> = {};
+    // Repasse de parceria (metadata.source: "partner_split") não é uma venda
+    // própria de ninguém — fica de fora daqui, tem visão dedicada em
+    // GET /master/split-transactions (ver Split de Pagamentos no painel).
+    const query: Record<string, unknown> = { "metadata.source": { $ne: "partner_split" } };
     if (status) query.status = status;
 
     const transactions = await Transaction.find(query)
@@ -282,6 +291,40 @@ export const listTransactions = async (req: Request, res: Response): Promise<voi
   } catch (error) {
     console.error("❌ Erro em listTransactions:", error);
     res.status(500).json({ status: false, msg: "Erro interno ao listar transações." });
+  }
+};
+
+/**
+ * GET /master/split-transactions
+ * Todos os repasses de parceria da plataforma — visão de auditoria do
+ * master, separada da lista geral de transações.
+ */
+export const listSplitTransactions = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const limit = Math.min(Number(req.query.limit) || 50, 200);
+
+    const transactions = await Transaction.find({ "metadata.source": "partner_split" })
+      .sort({ createdAt: -1 })
+      .limit(limit)
+      .lean();
+
+    // Enriquece com nome/email do destinatário (dono da própria transação) —
+    // o registro só carrega snapshotado quem PAGOU (splitFrom), não quem
+    // recebeu, então aqui é o único lugar que precisa dos dois lados.
+    const recipientSellers = await Seller.find({ userId: { $in: transactions.map((t) => t.userId) } })
+      .select("userId name email")
+      .lean();
+    const sellerByUserId = new Map(recipientSellers.map((s) => [String(s.userId), s]));
+
+    const enriched = transactions.map((t) => ({
+      ...t,
+      recipientSeller: sellerByUserId.get(String(t.userId)) || null,
+    }));
+
+    res.status(200).json({ status: true, transactions: enriched });
+  } catch (error) {
+    console.error("❌ Erro em listSplitTransactions:", error);
+    res.status(500).json({ status: false, msg: "Erro interno ao listar repasses de parceria." });
   }
 };
 
