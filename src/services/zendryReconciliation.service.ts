@@ -38,7 +38,7 @@ const LIVE_CHECK_ENABLED = true;
  * Só cobre Pix por enquanto — cartão já tem confirmação síncrona na criação
  * (não depende de webhook pra saber se foi aprovado).
  */
-const MIN_AGE_MINUTES = 3;
+const MIN_AGE_MINUTES = 1;
 const MAX_PAGES = 10;
 
 /**

@@ -81,10 +81,15 @@ connectDB()
     // 🔁 Rede de segurança: webhook da Zendry não confirmado como chegando
     // nesta conta (ver zendryWebhook.controller.ts) — reconcilia Pix
     // "pending" consultando a Zendry direto. Com o live-check ligado (ver
-    // LIVE_CHECK_ENABLED em zendryReconciliation.service.ts), isso é só
-    // backup pra sessões abandonadas/sem polling ativo, então roda a cada
-    // 10min. Primeira rodada logo no boot, com atraso pra não brigar com o
-    // próprio startup do processo.
+    // LIVE_CHECK_ENABLED em zendryReconciliation.service.ts), isso só ajuda
+    // sozinho quem NÃO está sendo coberto pelo live-check (comprador saiu da
+    // tela, ou integrador via API que não faz polling de status) — pra esses
+    // casos, 10min de espera no pior caso gerava reclamação de cliente
+    // impaciente. Reduzido pra 90s em 2026-08-13 (o intervalo real, não o
+    // problema raiz — o problema raiz é confirmar se o webhook da Zendry
+    // está mesmo registrado pra essa conta, ver comentário no topo do
+    // zendryReconciliation.service.ts). Primeira rodada logo no boot, com
+    // atraso pra não brigar com o próprio startup do processo.
     const runReconciliation = () => {
       reconcilePendingZendryPix()
         .then((r) => {
@@ -94,10 +99,10 @@ connectDB()
         })
         .catch((err) => console.error("❌ Erro na reconciliação periódica de Pix:", err));
     };
-    const TEN_MINUTES = 10 * 60 * 1000;
+    const RECONCILIATION_INTERVAL = 90 * 1000;
     setTimeout(() => {
       runReconciliation();
-      setInterval(runReconciliation, TEN_MINUTES);
+      setInterval(runReconciliation, RECONCILIATION_INTERVAL);
     }, 30_000);
 
     // 🔁 Rede de segurança: até 2026-08-09, o único jeito de mover saldo de
@@ -135,6 +140,7 @@ connectDB()
         })
         .catch((err) => console.error("❌ Erro na reconciliação periódica de saques PIX:", err));
     };
+    const TEN_MINUTES = 10 * 60 * 1000;
     setTimeout(() => {
       runPixPayoutReconciliation();
       setInterval(runPixPayoutReconciliation, TEN_MINUTES);
