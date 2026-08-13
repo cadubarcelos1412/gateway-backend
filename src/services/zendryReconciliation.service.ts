@@ -1,13 +1,18 @@
 import crypto from "crypto";
 import { Transaction } from "../models/transaction.model";
 import { Seller } from "../models/seller.model";
-import { getZendryAccessToken, ZENDRY_API_BASE } from "../lib/zendry/client";
+import { zendryFetchWithRetry } from "../lib/zendry/client";
 import { mapZendryStatus } from "../lib/zendry/status-mapper";
 import { applyZendryPaymentStatus } from "./zendryPaymentStatus.service";
 
 interface ZendryQrcode {
   reference_code: string | null;
   status: string;
+}
+
+interface ZendryQrcodesPage {
+  qrcodes?: ZendryQrcode[];
+  meta?: { total_pages?: number };
 }
 
 /**
@@ -79,15 +84,20 @@ export interface ReconciliationResult {
 const SINGLE_CHECK_MAX_PAGES = 3;
 
 export async function checkSingleZendryPix(externalId: string): Promise<{ applied: boolean }> {
-  const token = await getZendryAccessToken();
-
   for (let page = 1; page <= SINGLE_CHECK_MAX_PAGES; page++) {
-    const res = await fetch(`${ZENDRY_API_BASE}/v1/pix/qrcodes?page=${page}`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    if (!res.ok) break;
+    let json: ZendryQrcodesPage;
+    try {
+      // Retry embutido (1x, 800ms) pra falha transitória (5xx) da Zendry —
+      // achado em 2026-08-13: a API dela devolve 500 genérico sob carga
+      // com alguma frequência, e antes disso qualquer erro aqui fazia o
+      // comprador ficar "pending" na tela até o próximo ciclo de polling,
+      // mesmo o pagamento já estando confirmado do lado da Zendry.
+      json = await zendryFetchWithRetry<ZendryQrcodesPage>(`/v1/pix/qrcodes?page=${page}`, { method: "GET" });
+    } catch (err) {
+      console.error(`⚠️ Checagem ao vivo do Pix falhou (página ${page}, mesmo após retry):`, (err as Error).message);
+      break;
+    }
 
-    const json = (await res.json()) as { qrcodes?: ZendryQrcode[]; meta?: { total_pages?: number } };
     const match = (json.qrcodes || []).find((qr) => qr.reference_code === externalId);
 
     if (match) {
@@ -164,16 +174,21 @@ export async function reconcilePendingZendryPix(): Promise<ReconciliationResult>
 
   const pendingByExternalId = new Map(pending.map((tx) => [tx.externalId, tx]));
 
-  const token = await getZendryAccessToken();
   let remaining = new Set(pendingByExternalId.keys());
 
   for (let page = 1; page <= MAX_PAGES && remaining.size > 0; page++) {
-    const res = await fetch(`${ZENDRY_API_BASE}/v1/pix/qrcodes?page=${page}`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    if (!res.ok) break;
+    let json: ZendryQrcodesPage;
+    try {
+      // Retry embutido (1x, 800ms) — mesmo motivo do checkSingleZendryPix:
+      // sem isso, um único 5xx transitório da Zendry aborta a rodada
+      // inteira de reconciliação, deixando todo mundo pendente até o
+      // próximo ciclo.
+      json = await zendryFetchWithRetry<ZendryQrcodesPage>(`/v1/pix/qrcodes?page=${page}`, { method: "GET" });
+    } catch (err) {
+      result.errors.push({ transactionId: "(lote)", error: `Falha ao buscar página ${page} da Zendry (após retry): ${(err as Error).message}` });
+      break;
+    }
 
-    const json = (await res.json()) as { qrcodes?: ZendryQrcode[]; meta?: { total_pages?: number } };
     const qrcodes = json.qrcodes || [];
 
     for (const qr of qrcodes) {
@@ -182,10 +197,21 @@ export async function reconcilePendingZendryPix(): Promise<ReconciliationResult>
       const mappedStatus = mapZendryStatus(qr.status);
       if (mappedStatus === "pending") continue; // ainda não resolvido de verdade na Zendry
 
-      const tx = pendingByExternalId.get(qr.reference_code);
-      if (tx) {
-        const ageMinutes = (Date.now() - tx.createdAt.getTime()) / 60_000;
-        if (ageMinutes < pixConfirmationDelayMinutes(String(tx._id))) continue; // ainda não bateu o delay-alvo desta transação — tenta de novo no próximo ciclo
+      // 🐛 Achado em 2026-08-13: esse delay-alvo (5-10min, ver comentário na
+      // definição de pixConfirmationDelayMinutes) só devia valer com
+      // LIVE_CHECK_ENABLED=false — mas o `continue` abaixo rodava sempre,
+      // mesmo com LIVE_CHECK_ENABLED=true. Como o live-check também estava
+      // silenciosamente falhando em erro transitório da Zendry (mesmo bug
+      // corrigido em checkSingleZendryPix hoje), essa trava "de alavanca
+      // comercial" acabou virando o atraso real de confirmação de todo
+      // mundo — pedidos reais levando 8-10min pra confirmar, batendo
+      // exatamente com esse intervalo.
+      if (!LIVE_CHECK_ENABLED) {
+        const tx = pendingByExternalId.get(qr.reference_code);
+        if (tx) {
+          const ageMinutes = (Date.now() - tx.createdAt.getTime()) / 60_000;
+          if (ageMinutes < pixConfirmationDelayMinutes(String(tx._id))) continue; // ainda não bateu o delay-alvo desta transação — tenta de novo no próximo ciclo
+        }
       }
 
       try {
