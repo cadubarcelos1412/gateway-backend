@@ -80,16 +80,15 @@ connectDB()
 
     // 🔁 Rede de segurança: webhook da Zendry não confirmado como chegando
     // nesta conta (ver zendryWebhook.controller.ts) — reconcilia Pix
-    // "pending" consultando a Zendry direto. Com o live-check ligado (ver
-    // LIVE_CHECK_ENABLED em zendryReconciliation.service.ts), isso só ajuda
-    // sozinho quem NÃO está sendo coberto pelo live-check (comprador saiu da
-    // tela, ou integrador via API que não faz polling de status) — pra esses
-    // casos, 10min de espera no pior caso gerava reclamação de cliente
-    // impaciente. Reduzido pra 90s em 2026-08-13 (o intervalo real, não o
-    // problema raiz — o problema raiz é confirmar se o webhook da Zendry
-    // está mesmo registrado pra essa conta, ver comentário no topo do
-    // zendryReconciliation.service.ts). Primeira rodada logo no boot, com
-    // atraso pra não brigar com o próprio startup do processo.
+    // "pending" consultando a Zendry direto. Medido em produção em
+    // 2026-08-13 (10 confirmações reais da Ocampo Store): TODAS levaram
+    // 320-783s pra confirmar, mesmo as que o integrador registrou como
+    // pegas por polling ativo do lado dele — ou seja, esse loop (não o
+    // webhook da Zendry pra nós, que segue não confirmado, nem o polling do
+    // integrador) é o caminho que está realmente resolvendo essas
+    // confirmações hoje, e o intervalo dele é o teto real de espera do
+    // cliente final. Reduzido de 90s pra 30s por isso. Primeira rodada logo
+    // no boot, com atraso pra não brigar com o próprio startup do processo.
     const runReconciliation = () => {
       reconcilePendingZendryPix()
         .then((r) => {
@@ -99,7 +98,7 @@ connectDB()
         })
         .catch((err) => console.error("❌ Erro na reconciliação periódica de Pix:", err));
     };
-    const RECONCILIATION_INTERVAL = 90 * 1000;
+    const RECONCILIATION_INTERVAL = 30 * 1000;
     setTimeout(() => {
       runReconciliation();
       setInterval(runReconciliation, RECONCILIATION_INTERVAL);
