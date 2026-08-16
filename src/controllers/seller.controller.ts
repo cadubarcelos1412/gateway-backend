@@ -8,7 +8,7 @@ import { Transaction } from "../models/transaction.model";
 import { ACQUIRER_KEYS } from "../acquirers";
 import { getOrCreateDefaultFeeConfig } from "../models/systemFeeConfig.model";
 import { SplitRule } from "../models/splitRule.model";
-import { sendPartnershipInviteEmail } from "../services/email.service";
+import { sendPartnershipInviteEmail, sendPartnershipPercentageChangeEmail } from "../services/email.service";
 
 /**
  * Agrega vendas/receita (só transações "deposit" aprovadas) por userId —
@@ -526,6 +526,7 @@ export const listReceivedSplitRules = async (req: Request, res: Response): Promi
     const rulesWithPayer = rules.map((r: any) => ({
       _id: r._id,
       percentage: r.percentage,
+      pendingPercentage: r.pendingPercentage ?? null,
       description: r.description,
       status: r.status,
       createdAt: r.createdAt,
@@ -635,6 +636,98 @@ export const createSplitRule = async (req: Request, res: Response): Promise<void
   }
 };
 
+/**
+ * 🤝 Propõe um novo percentual pra uma parceria já ativa — não precisa
+ * cancelar o convite pra mudar a %. A parceria continua valendo no
+ * percentual ATUAL até o destinatário aceitar a proposta; só então
+ * `percentage` é atualizado de verdade.
+ */
+export const updateSplitRulePercentage = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const user = await getUserFromToken(req.headers.authorization);
+    if (!user) {
+      res.status(403).json({ status: false, msg: "Token inválido." });
+      return;
+    }
+
+    const payingSeller = await Seller.findOne({ userId: user._id });
+    if (!payingSeller) {
+      res.status(404).json({ status: false, msg: "Perfil de seller não encontrado." });
+      return;
+    }
+
+    const { id } = req.params;
+    const { percentage } = req.body as { percentage?: number };
+
+    if (!Types.ObjectId.isValid(id)) {
+      res.status(400).json({ status: false, msg: "ID de parceria inválido." });
+      return;
+    }
+    if (!percentage || percentage <= 0 || percentage > 100) {
+      res.status(400).json({ status: false, msg: "Percentual deve ser maior que 0 e no máximo 100." });
+      return;
+    }
+
+    const rule = await SplitRule.findOne({ _id: id, payingSellerId: payingSeller._id, status: "active" });
+    if (!rule) {
+      res.status(404).json({ status: false, msg: "Parceria ativa não encontrada." });
+      return;
+    }
+
+    if (Number(percentage) === rule.percentage) {
+      res.status(400).json({ status: false, msg: "Esse já é o percentual atual dessa parceria." });
+      return;
+    }
+
+    // Teto de 100%: soma das OUTRAS parcerias ativas/pendentes + o novo
+    // percentual proposto (não o atual, que vai deixar de valer se aceito).
+    const otherRules = await SplitRule.find({
+      payingSellerId: payingSeller._id,
+      status: { $in: ["active", "pending"] },
+      _id: { $ne: rule._id },
+    });
+    const otherTotal = otherRules.reduce((sum, r) => sum + r.percentage, 0);
+    if (otherTotal + Number(percentage) > 100) {
+      res.status(400).json({
+        status: false,
+        msg: `A soma das parcerias ativas/pendentes não pode passar de 100%. Com as outras (${otherTotal}%), disponível pra essa: ${round100(100 - otherTotal)}%.`,
+      });
+      return;
+    }
+
+    const previousPercentage = rule.percentage;
+    rule.pendingPercentage = Number(percentage);
+    await rule.save();
+
+    // Aviso por e-mail é best-effort — a proposta já existe como
+    // pendingPercentage independente do e-mail sair ou não.
+    try {
+      const recipientSeller = await Seller.findById(rule.recipientSellerId);
+      if (recipientSeller) {
+        const actionUrl = `${(process.env.FRONTEND_URL || "https://www.pyxgate.com").replace(/\/$/, "")}/#/dashboard/split-rules`;
+        await sendPartnershipPercentageChangeEmail(
+          recipientSeller.email,
+          payingSeller.name,
+          previousPercentage,
+          Number(percentage),
+          actionUrl
+        );
+      }
+    } catch (emailErr) {
+      console.error("⚠️ Falha ao enviar e-mail de mudança de percentual:", emailErr);
+    }
+
+    res.status(200).json({
+      status: true,
+      msg: "✅ Proposta de novo percentual enviada! A parceria continua no percentual atual até o parceiro aceitar.",
+      rule,
+    });
+  } catch (error) {
+    console.error("❌ Erro em updateSplitRulePercentage:", error);
+    res.status(500).json({ status: false, msg: "Erro interno ao propor novo percentual." });
+  }
+};
+
 /* 🤝 Aceitar ou recusar um convite de parceria recebido */
 export const respondSplitRule = async (req: Request, res: Response): Promise<void> => {
   try {
@@ -662,9 +755,54 @@ export const respondSplitRule = async (req: Request, res: Response): Promise<voi
       return;
     }
 
-    const rule = await SplitRule.findOne({ _id: id, recipientSellerId: seller._id, status: "pending" });
+    // Cobre dois casos: convite novo (status "pending") OU proposta de
+    // mudança de % numa parceria já ativa (pendingPercentage setado).
+    const rule = await SplitRule.findOne({
+      _id: id,
+      recipientSellerId: seller._id,
+      $or: [{ status: "pending" }, { pendingPercentage: { $ne: null } }],
+    });
     if (!rule) {
-      res.status(404).json({ status: false, msg: "Convite não encontrado ou já respondido." });
+      res.status(404).json({ status: false, msg: "Convite ou proposta não encontrada, ou já respondida." });
+      return;
+    }
+
+    const isPercentageChange = rule.status === "active" && rule.pendingPercentage != null;
+
+    if (isPercentageChange) {
+      if (!accept) {
+        // Recusar a MUDANÇA não cancela a parceria — só mantém o percentual
+        // anterior, que continua valendo normalmente.
+        rule.pendingPercentage = undefined;
+        await rule.save();
+        res.status(200).json({
+          status: true,
+          msg: "Mudança de percentual recusada — a parceria continua no percentual anterior.",
+          rule,
+        });
+        return;
+      }
+
+      // Reconfere o teto de 100% do pagador — outra parceria dele pode ter
+      // mudado nesse meio-tempo.
+      const otherRules = await SplitRule.find({
+        payingSellerId: rule.payingSellerId,
+        status: "active",
+        _id: { $ne: rule._id },
+      });
+      const otherTotal = otherRules.reduce((sum, r) => sum + r.percentage, 0);
+      if (otherTotal + (rule.pendingPercentage as number) > 100) {
+        res.status(409).json({
+          status: false,
+          msg: "Quem te convidou não tem mais % disponível pra essa mudança agora. Fale com ele.",
+        });
+        return;
+      }
+
+      rule.percentage = rule.pendingPercentage as number;
+      rule.pendingPercentage = undefined;
+      await rule.save();
+      res.status(200).json({ status: true, msg: "✅ Novo percentual aceito! Já está valendo.", rule });
       return;
     }
 

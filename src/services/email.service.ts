@@ -198,6 +198,34 @@ export async function sendPartnershipInviteEmail(
 }
 
 /**
+ * Envia o aviso de proposta de mudança de percentual numa parceria já
+ * ativa. Best-effort, mesmo padrão do convite — a proposta já existe como
+ * pendingPercentage independente do e-mail sair ou não.
+ */
+export async function sendPartnershipPercentageChangeEmail(
+  to: string,
+  payerName: string,
+  currentPercentage: number,
+  proposedPercentage: number,
+  actionUrl: string
+): Promise<void> {
+  const from = process.env.EMAIL_FROM || "PyxGate <onboarding@resend.dev>";
+  const direction = proposedPercentage > currentPercentage ? "aumentar" : "diminuir";
+
+  await getResendClient().emails.send({
+    from,
+    to,
+    subject: `${payerName} quer mudar o percentual da parceria com você`,
+    html: renderActionEmail(
+      `${payerName} propôs mudar o percentual da parceria`,
+      `${payerName} quer ${direction} o percentual que você recebe das vendas dele(a): de <strong>${currentPercentage}%</strong> pra <strong>${proposedPercentage}%</strong>. A parceria continua valendo no percentual atual até você aceitar ou recusar essa mudança.`,
+      "Ver proposta",
+      actionUrl
+    ),
+  });
+}
+
+/**
  * Envia o código de verificação por e-mail via Resend. Erros de envio
  * (API key inválida, domínio não verificado, etc.) sobem pro chamador —
  * nunca engolimos silenciosamente uma falha de envio de código.

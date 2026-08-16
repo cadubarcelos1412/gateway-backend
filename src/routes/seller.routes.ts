@@ -13,6 +13,7 @@ import {
   listMySplitRules,
   listReceivedSplitRules,
   createSplitRule,
+  updateSplitRulePercentage,
   respondSplitRule,
   revokeSplitRule,
 } from "../controllers/seller.controller";
@@ -58,9 +59,19 @@ router.post("/me/split-rules", createSplitRule);
 router.get("/me/split-rules/received", listReceivedSplitRules);
 
 /**
+ * @route   PATCH /api/sellers/me/split-rules/:id/percentage
+ * @desc    Propõe novo percentual pra uma parceria já ativa — não precisa
+ *          cancelar o convite. Fica valendo o percentual ATUAL até o
+ *          destinatário aceitar a proposta. Só o pagador pode propor.
+ * @access  Autenticado (seller)
+ */
+router.patch("/me/split-rules/:id/percentage", updateSplitRulePercentage);
+
+/**
  * @route   PATCH /api/sellers/me/split-rules/:id/respond
  * @desc    Aceitar ({accept:true}) ou recusar ({accept:false}) um convite de
- *          parceria recebido — só o destinatário pode responder
+ *          parceria OU uma proposta de mudança de percentual — só o
+ *          destinatário pode responder
  * @access  Autenticado (seller)
  */
 router.patch("/me/split-rules/:id/respond", respondSplitRule);

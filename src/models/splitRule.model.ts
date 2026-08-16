@@ -12,6 +12,9 @@ export interface ISplitRule extends Document {
   recipientSellerId: Types.ObjectId;
   recipientEmail: string; // snapshot pra exibição/histórico — a fonte de verdade é recipientSellerId
   percentage: number;
+  /** Percentual proposto pelo pagador pra substituir `percentage` — parceria
+   * continua ativa no valor atual até o destinatário aceitar ou recusar. */
+  pendingPercentage?: number;
   description?: string;
   status: SplitRuleStatus;
   createdBy: Types.ObjectId;
@@ -25,6 +28,7 @@ const SplitRuleSchema = new Schema<ISplitRule>(
     recipientSellerId: { type: Schema.Types.ObjectId, ref: "Seller", required: true, index: true },
     recipientEmail: { type: String, required: true, trim: true, lowercase: true },
     percentage: { type: Number, required: true, min: 0.01, max: 100 },
+    pendingPercentage: { type: Number, min: 0.01, max: 100 },
     description: { type: String, trim: true },
     status: { type: String, enum: ["pending", "active", "revoked", "rejected"], default: "pending", index: true },
     createdBy: { type: Schema.Types.ObjectId, ref: "User", required: true },
