@@ -236,9 +236,17 @@ export const listMyCashoutRequests = async (req: Request, res: Response): Promis
       return;
     }
 
-    const requests = await CashoutRequest.find({ userId: payload.id })
-      .sort({ createdAt: -1 })
-      .lean();
+    const [requests, payer] = await Promise.all([
+      CashoutRequest.find({ userId: payload.id }).sort({ createdAt: -1 }).lean(),
+      User.findById(payload.id).select("name document").lean(),
+    ]);
+
+    // "Pagador" no comprovante é o próprio seller (quem de fato manda o Pix
+    // através da plataforma) — não a PyxGate. Vem do cadastro dele, sempre
+    // o mesmo pra todo saque, então busca uma vez só em vez de popular por
+    // request.
+    const payerName = payer?.name || null;
+    const payerDocument = (payer as any)?.document || null;
 
     res.status(200).json({
       status: true,
@@ -253,10 +261,13 @@ export const listMyCashoutRequests = async (req: Request, res: Response): Promis
         pixKeyType: r.pixKeyType || null,
         pixKey: r.pixKey || null,
         pixKeyHolderName: r.pixKeyHolderName || null,
+        pixKeyHolderDocument: r.pixKeyHolderDocument || null,
         destinationAddress: r.destinationAddress || null,
         externalReference: r.externalReference || null,
         providerStatus: r.providerStatus || null,
         rejectionReason: r.rejectionReason || null,
+        payerName,
+        payerDocument,
         createdAt: r.createdAt,
         approvedAt: r.approvedAt || null,
       })),
