@@ -133,7 +133,7 @@ export class CashoutService {
     await postLedgerEntries(
       [
         { account: "passivo_seller", type: "debit", amount },
-        { account: "conta_corrente_bancaria", type: "credit", amount: netAmount },
+        { account: "conta_liquidacao", type: "credit", amount: netAmount },
         ...(fee > 0 ? [{ account: "receita_taxa_kissa", type: "credit" as const, amount: fee }] : []),
       ],
       {
@@ -268,12 +268,68 @@ export class CashoutService {
         return;
       }
 
-      const wallet = await Wallet.findOne({ userId: cashout.userId }).session(session);
-      if (!wallet) throw new Error("Carteira não encontrada pra devolver saque falho.");
-
       const amount = round2(cashout.amount);
       const fee = round2(cashout.fee ?? 0);
       const netAmount = round2(cashout.netAmount ?? amount);
+
+      // Decisão de negócio (2026-08-17): quando refundToUserId está setado,
+      // o valor recuperado NÃO volta pro seller que causou o problema
+      // (ex.: digitou a chave Pix errada) — vai pra outra conta. Só o
+      // netAmount muda de mão (é o único valor que de fato voltou pro
+      // nosso banco — a taxa já tinha virado receita em approveCashout e
+      // continua sendo); o passivo do seller original não é restaurado de
+      // propósito.
+      if (cashout.refundToUserId) {
+        const redirectWallet = await Wallet.findOne({ userId: cashout.refundToUserId }).session(session);
+        if (!redirectWallet) throw new Error("Carteira de destino do redirecionamento não encontrada.");
+
+        redirectWallet.balance.available = round2(redirectWallet.balance.available + netAmount);
+        redirectWallet.log.push({
+          transactionId: cashout._id as Types.ObjectId,
+          type: "topup",
+          method: "pix",
+          amount: netAmount,
+          security: { createdAt: new Date(), ipAddress: "system", userAgent: "pix-payout-refund-redirect" },
+        });
+        await redirectWallet.save({ session });
+
+        await postLedgerEntries(
+          [
+            { account: "conta_liquidacao", type: "debit", amount: netAmount },
+            { account: "passivo_seller", type: "credit", amount: netAmount, sellerId: cashout.refundToUserId.toString() },
+          ],
+          {
+            idempotencyKey: `cashout_refund:${cashoutId.toString()}`,
+            transactionId: cashoutId.toString(),
+            sellerId: cashout.refundToUserId.toString(),
+            source: { system: "cashout", acquirer: "zendry" },
+            eventAt: new Date(),
+          },
+          session
+        );
+
+        cashout.status = "rejected";
+        cashout.rejectionReason = `Saque não completado pela Zendry (${reason}) — valor redirecionado por decisão administrativa, não devolvido ao seller original.`;
+        await cashout.save({ session });
+
+        await session.commitTransaction();
+
+        await TransactionAuditService.log({
+          transactionId: cashout._id as Types.ObjectId,
+          sellerId: cashout.refundToUserId as Types.ObjectId,
+          userId: cashout.refundToUserId as Types.ObjectId,
+          amount: netAmount,
+          method: "pix",
+          status: "approved",
+          kycStatus: "verified",
+          flags: [],
+          description: `Saque de ${cashout.userId.toString()} não completado pela Zendry — valor redirecionado por decisão administrativa (${reason}).`,
+        });
+        return;
+      }
+
+      const wallet = await Wallet.findOne({ userId: cashout.userId }).session(session);
+      if (!wallet) throw new Error("Carteira não encontrada pra devolver saque falho.");
 
       wallet.balance.available = round2(wallet.balance.available + amount);
       wallet.log.push({
@@ -290,7 +346,7 @@ export class CashoutService {
       await postLedgerEntries(
         [
           { account: "passivo_seller", type: "credit", amount },
-          { account: "conta_corrente_bancaria", type: "debit", amount: netAmount },
+          { account: "conta_liquidacao", type: "debit", amount: netAmount },
           ...(fee > 0 ? [{ account: "receita_taxa_kissa", type: "debit" as const, amount: fee }] : []),
         ],
         {
@@ -402,7 +458,7 @@ export class CashoutService {
       await postLedgerEntries(
         [
           { account: "passivo_seller", type: "debit", amount },
-          { account: "conta_corrente_bancaria", type: "credit", amount: netAmount },
+          { account: "conta_liquidacao", type: "credit", amount: netAmount },
           ...(fee > 0 ? [{ account: "receita_taxa_kissa", type: "credit" as const, amount: fee }] : []),
         ],
         {

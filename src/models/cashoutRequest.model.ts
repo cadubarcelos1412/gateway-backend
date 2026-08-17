@@ -24,6 +24,13 @@ export interface ICashoutRequest extends Document {
    * Zendry está instável) e só está registrando aqui pra manter o saldo
    * batendo com o real, ver CashoutService.recordManualWithdrawal. */
   origin?: "app" | "manual";
+  /** Decisão de negócio (2026-08-17): quando setado, se esse saque acabar
+   * cancelado/falhado, o valor devolvido NÃO volta pro seller original —
+   * vai pra esse userId em vez disso. Usado quando o erro foi do próprio
+   * seller (ex.: digitou a chave Pix errada) e a plataforma decide reter o
+   * valor recuperado em vez de devolver pra quem causou o problema. Ver
+   * CashoutService.refundFailedPixPayout. */
+  refundToUserId?: Types.ObjectId;
 
   /** Trilho do saque — "pix" (padrão, fluxo manual existente) ou "usdt" (Zendry, automático). */
   rail: "pix" | "usdt";
@@ -74,6 +81,7 @@ const CashoutRequestSchema = new Schema<ICashoutRequest>(
     approvedAt: { type: Date },
     rejectionReason: { type: String },
     origin: { type: String, enum: ["app", "manual"] },
+    refundToUserId: { type: Schema.Types.ObjectId, ref: "User" },
 
     rail: { type: String, enum: ["pix", "usdt"], default: "pix", required: true },
     destinationAddress: { type: String, trim: true },
