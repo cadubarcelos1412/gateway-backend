@@ -8,6 +8,22 @@ import CashoutRequest from "../models/cashoutRequest.model";
 import { Seller } from "../models/seller.model";
 
 /**
+ * Bloqueia saque de quem ainda não tem KYC aprovado — antes só o frontend
+ * impedia isso (tela cheia de bloqueio), sem nenhuma checagem aqui no
+ * backend. Como o frontend virou navegável mesmo com KYC pendente (ver
+ * KycPendingBanner.tsx), essa checagem no servidor passou a ser a única
+ * coisa real impedindo saque de conta não verificada.
+ */
+async function checkKycApproved(userId: Types.ObjectId): Promise<string | null> {
+  const seller = await Seller.findOne({ userId });
+  if (!seller) return "Cadastro de seller não encontrado.";
+  if (seller.kycStatus !== "approved" && seller.kycStatus !== "active") {
+    return "Sua verificação de identidade (KYC) ainda não foi aprovada — não é possível sacar até a aprovação.";
+  }
+  return null;
+}
+
+/**
  * Confirma o PIN de saque antes de qualquer cashout (Pix ou USDT). Retorna
  * uma mensagem de erro em caso de falha, ou `null` se o PIN bateu.
  */
@@ -69,6 +85,12 @@ export const createCashoutRequest = async (req: Request, res: Response): Promise
     const user = await User.findById(payload.id);
     if (!user) {
       res.status(404).json({ status: false, msg: "Usuário não encontrado." });
+      return;
+    }
+
+    const kycError = await checkKycApproved(user._id as Types.ObjectId);
+    if (kycError) {
+      res.status(403).json({ status: false, msg: kycError });
       return;
     }
 
@@ -178,6 +200,12 @@ export const createCryptoCashoutRequest = async (req: Request, res: Response): P
     const user = await User.findById(payload.id);
     if (!user) {
       res.status(404).json({ status: false, msg: "Usuário não encontrado." });
+      return;
+    }
+
+    const kycError = await checkKycApproved(user._id as Types.ObjectId);
+    if (kycError) {
+      res.status(403).json({ status: false, msg: kycError });
       return;
     }
 
