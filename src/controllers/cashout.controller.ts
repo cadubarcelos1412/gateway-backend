@@ -6,6 +6,7 @@ import { User, IUser } from "../models/user.model";
 import { CashoutService } from "../services/cashout.service";
 import CashoutRequest from "../models/cashoutRequest.model";
 import { Seller } from "../models/seller.model";
+import { SavedBeneficiary } from "../models/savedBeneficiary.model";
 
 /**
  * Bloqueia saque de quem ainda não tem KYC aprovado — antes só o frontend
@@ -54,7 +55,7 @@ export const createCashoutRequest = async (req: Request, res: Response): Promise
       return;
     }
 
-    const { amount, pin, pixKeyType, pixKey, pixKeyHolderName, pixKeyHolderDocument } = req.body;
+    const { amount, pin, pixKeyType, pixKey, pixKeyHolderName, pixKeyHolderDocument, saveBeneficiary } = req.body;
     if (!amount || amount <= 0) {
       res.status(400).json({ status: false, msg: "Valor de saque inválido." });
       return;
@@ -107,6 +108,26 @@ export const createCashoutRequest = async (req: Request, res: Response): Promise
       holderDocument: holderDocumentDigits,
     });
     await session.commitTransaction();
+
+    // 📇 "Salvar favorecido" — best-effort, não deve derrubar o saque que já
+    // foi criado com sucesso se isso falhar por algum motivo.
+    if (saveBeneficiary) {
+      try {
+        await SavedBeneficiary.findOneAndUpdate(
+          { userId: user._id, pixKey: pixKey.trim() },
+          {
+            userId: user._id,
+            pixKeyType,
+            pixKey: pixKey.trim(),
+            holderName: pixKeyHolderName.trim(),
+            holderDocument: holderDocumentDigits,
+          },
+          { upsert: true, setDefaultsOnInsert: true }
+        );
+      } catch (err) {
+        console.error("⚠️ Falha ao salvar favorecido (saque seguiu normalmente):", err);
+      }
+    }
 
     // 🤖 Seller com saque automático ligado (ver Seller.autoWithdrawEnabled,
     // painel master > Sellers Ativos > Ver Detalhes) — auto-aprova e já

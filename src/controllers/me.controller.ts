@@ -7,6 +7,7 @@ import { Transaction } from "../models/transaction.model";
 import { Product } from "../models/product.model";
 import { Checkout } from "../models/checkout.model";
 import { Seller } from "../models/seller.model";
+import { SavedBeneficiary } from "../models/savedBeneficiary.model";
 import { getOrCreateDefaultFeeConfig } from "../models/systemFeeConfig.model";
 import { AnticipationService } from "../services/anticipation.service";
 import { AnticipationTier } from "../models/anticipationRequest.model";
@@ -84,6 +85,88 @@ export const getMyWallet = async (req: Request, res: Response): Promise<void> =>
   } catch (err) {
     console.error("❌ Erro em getMyWallet:", err);
     res.status(500).json({ status: false, msg: "Erro interno ao buscar carteira." });
+  }
+};
+
+/**
+ * GET /api/user/beneficiaries
+ * Lista os favorecidos salvos pelo seller, mais recentes primeiro — usado
+ * no seletor "Favorecidos" do modal de saque Pix.
+ */
+export const getMyBeneficiaries = async (req: Request, res: Response): Promise<void> => {
+  const userId = await getAuthUserId(req, res);
+  if (!userId) return;
+
+  try {
+    const beneficiaries = await SavedBeneficiary.find({ userId }).sort({ updatedAt: -1 }).lean();
+    res.status(200).json({ status: true, beneficiaries });
+  } catch (err) {
+    console.error("❌ Erro em getMyBeneficiaries:", err);
+    res.status(500).json({ status: false, msg: "Erro interno ao buscar favorecidos." });
+  }
+};
+
+/**
+ * POST /api/user/beneficiaries
+ * Salva (ou atualiza, se a chave já existir) um favorecido — chamado tanto
+ * a partir do checkbox "Salvar favorecido" no saque quanto isoladamente.
+ */
+export const saveMyBeneficiary = async (req: Request, res: Response): Promise<void> => {
+  const userId = await getAuthUserId(req, res);
+  if (!userId) return;
+
+  try {
+    const { pixKeyType, pixKey, holderName, holderDocument } = req.body;
+    const validTypes = ["cpf", "cnpj", "email", "phone", "random"];
+    if (!pixKeyType || !validTypes.includes(pixKeyType)) {
+      res.status(400).json({ status: false, msg: "Tipo de chave PIX inválido." });
+      return;
+    }
+    if (!pixKey || typeof pixKey !== "string" || !pixKey.trim()) {
+      res.status(400).json({ status: false, msg: "Chave PIX é obrigatória." });
+      return;
+    }
+    if (!holderName || typeof holderName !== "string" || !holderName.trim()) {
+      res.status(400).json({ status: false, msg: "Nome do titular é obrigatório." });
+      return;
+    }
+
+    const beneficiary = await SavedBeneficiary.findOneAndUpdate(
+      { userId, pixKey: pixKey.trim() },
+      {
+        userId,
+        pixKeyType,
+        pixKey: pixKey.trim(),
+        holderName: holderName.trim(),
+        holderDocument: typeof holderDocument === "string" ? holderDocument.replace(/\D/g, "") : "",
+      },
+      { upsert: true, new: true, setDefaultsOnInsert: true }
+    );
+
+    res.status(200).json({ status: true, beneficiary });
+  } catch (err) {
+    console.error("❌ Erro em saveMyBeneficiary:", err);
+    res.status(500).json({ status: false, msg: "Erro interno ao salvar favorecido." });
+  }
+};
+
+/**
+ * DELETE /api/user/beneficiaries/:id
+ */
+export const deleteMyBeneficiary = async (req: Request, res: Response): Promise<void> => {
+  const userId = await getAuthUserId(req, res);
+  if (!userId) return;
+
+  try {
+    const result = await SavedBeneficiary.deleteOne({ _id: req.params.id, userId });
+    if (result.deletedCount === 0) {
+      res.status(404).json({ status: false, msg: "Favorecido não encontrado." });
+      return;
+    }
+    res.status(200).json({ status: true, msg: "Favorecido removido." });
+  } catch (err) {
+    console.error("❌ Erro em deleteMyBeneficiary:", err);
+    res.status(500).json({ status: false, msg: "Erro interno ao remover favorecido." });
   }
 };
 

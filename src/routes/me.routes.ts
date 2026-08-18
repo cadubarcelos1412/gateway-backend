@@ -9,6 +9,9 @@ import {
   getMyCredentials,
   getMyFees,
   anticipateWallet,
+  getMyBeneficiaries,
+  saveMyBeneficiary,
+  deleteMyBeneficiary,
 } from "../controllers/me.controller";
 import { setupPin, changePin, forgotPin, resetPin } from "../controllers/pin.controller";
 
@@ -28,6 +31,11 @@ router.get("/checkouts", getMyCheckouts);
 router.get("/credentials", getMyCredentials);
 router.get("/fees", getMyFees);
 router.post("/wallet/anticipate", anticipateWallet);
+
+/* 📇 Favorecidos salvos — atalho de preenchimento no saque Pix */
+router.get("/beneficiaries", getMyBeneficiaries);
+router.post("/beneficiaries", saveMyBeneficiary);
+router.delete("/beneficiaries/:id", deleteMyBeneficiary);
 
 /* 🔐 PIN de saque — autoriza os saques em Pix/USDT (cashout.routes.ts) */
 router.post("/pin/setup", setupPin);
