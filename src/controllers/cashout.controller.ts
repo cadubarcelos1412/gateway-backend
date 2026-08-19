@@ -485,6 +485,71 @@ export const rejectCashoutRequest = async (req: Request, res: Response): Promise
 };
 
 /* -------------------------------------------------------------------------- */
+/* 🩹 4️⃣b Marcar saque "approved" travado como falho e devolver o saldo      */
+/*        (admin/master)                                                     */
+/* -------------------------------------------------------------------------- */
+/**
+ * Pra saque que já foi aprovado e enviado, mas ficou preso — a Zendry
+ * confirma (por fora, no painel dela) que o dinheiro voltou pro saldo da
+ * PyxGate lá, só que o status da transação nunca fecha em "completed" nem
+ * "canceled" do lado dela. A reconciliação automática
+ * (pixPayoutReconciliation.service.ts) só age nesses dois status finais —
+ * sem isso, saque nessa situação ficava preso pra sempre em
+ * "awaiting_confirmation", sem nenhum botão de ação no painel, e o saldo
+ * do seller nunca era devolvido. Achado em produção em 2026-08-18.
+ *
+ * Reaproveita o mesmo CashoutService.refundFailedPixPayout que já roda
+ * sozinho quando a Zendry confirma cancelamento — é idempotente, só age
+ * se o saque ainda estiver "approved".
+ */
+export const markCashoutAsFailed = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const token = req.headers.authorization?.replace("Bearer ", "") ?? "";
+    const payload = await decodeToken(token);
+
+    if (!payload || !["admin", "master"].includes(payload.role)) {
+      res.status(403).json({ status: false, msg: "Acesso negado. Somente admins podem fazer isso." });
+      return;
+    }
+
+    const { id } = req.params;
+    const { reason } = req.body;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      res.status(400).json({ status: false, msg: "ID inválido." });
+      return;
+    }
+    if (!reason || typeof reason !== "string" || !reason.trim()) {
+      res.status(400).json({ status: false, msg: "Motivo é obrigatório." });
+      return;
+    }
+
+    const cashout = await CashoutRequest.findById(id);
+    if (!cashout) {
+      res.status(404).json({ status: false, msg: "Saque não encontrado." });
+      return;
+    }
+    if (cashout.status !== "approved") {
+      res.status(400).json({
+        status: false,
+        msg: `Esse saque está com status "${cashout.status}", não "aprovado" — nada foi feito.`,
+      });
+      return;
+    }
+
+    await CashoutService.refundFailedPixPayout(new Types.ObjectId(id), reason.trim());
+
+    res.status(200).json({
+      status: true,
+      msg: "✅ Saldo devolvido ao seller e saque marcado como falho.",
+    });
+  } catch (error: any) {
+    console.error("❌ Erro em markCashoutAsFailed:", error);
+    res.status(500).json({ status: false, msg: error.message || "Erro ao marcar saque como falho." });
+  }
+};
+
+/* -------------------------------------------------------------------------- */
 /* ✍️ 5️⃣ Registrar saque feito manualmente no painel da Zendry (admin/master) */
 /* -------------------------------------------------------------------------- */
 /**

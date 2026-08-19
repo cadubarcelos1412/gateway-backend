@@ -6,6 +6,7 @@ import {
   listCashoutRequests,
   approveCashoutRequest,
   rejectCashoutRequest,
+  markCashoutAsFailed,
   recordManualCashout,
 } from "../controllers/cashout.controller";
 
@@ -59,6 +60,14 @@ router.post("/:id/approve", approveCashoutRequest);
  * @access Protegido
  */
 router.post("/:id/reject", rejectCashoutRequest);
+
+/**
+ * @route POST /api/cashouts/:id/mark-failed
+ * @desc Saque "approved" que ficou travado (Zendry devolveu o dinheiro mas
+ *       nunca fechou o status) — devolve o saldo pro seller manualmente.
+ * @access Protegido (admin/master)
+ */
+router.post("/:id/mark-failed", markCashoutAsFailed);
 
 /**
  * @route POST /api/cashouts/manual
