@@ -385,6 +385,44 @@ export class CashoutService {
   }
 
   /**
+   * 4️⃣c Cancela um saque "approved" travado SEM devolver o saldo — pro
+   * caso em que o dinheiro precisa ser resolvido por fora (ex.: reenviar o
+   * Pix direto no painel da Zendry pra chave certa, depois de um estorno).
+   * Só fecha o registro como "rejected" pra sair da lista de pendências;
+   * não mexe em wallet nem ledger, porque nenhum valor voltou pro nosso
+   * lado — o dinheiro segue resolvido fora do app. Usar
+   * refundFailedPixPayout em vez disso quando o valor deve simplesmente
+   * voltar pro saldo do seller aqui dentro.
+   */
+  static async cancelWithoutRefund(
+    cashoutId: Types.ObjectId,
+    adminId: Types.ObjectId,
+    reason: string
+  ): Promise<void> {
+    const cashout = await CashoutRequest.findById(cashoutId);
+    if (!cashout || cashout.status !== "approved") {
+      throw new Error(`Esse saque está com status "${cashout?.status ?? "inexistente"}", não "approved" — nada foi feito.`);
+    }
+
+    cashout.status = "rejected";
+    cashout.approvedBy = adminId;
+    cashout.rejectionReason = `Cancelado sem devolver saldo (resolvido por fora) — ${reason}`;
+    await cashout.save();
+
+    await TransactionAuditService.log({
+      transactionId: cashout._id as Types.ObjectId,
+      sellerId: cashout.userId as Types.ObjectId,
+      userId: cashout.userId as Types.ObjectId,
+      amount: cashout.amount,
+      method: "pix",
+      status: "failed",
+      kycStatus: "verified",
+      flags: [],
+      description: `Saque cancelado manualmente sem devolver saldo — resolvido por fora: ${reason}`,
+    });
+  }
+
+  /**
    * 2️⃣b Registra um saque que foi feito DIRETO no painel da Zendry (fora do
    * nosso app) — workaround usado enquanto a Zendry está instável e o envio
    * automático não é confiável. O dinheiro já saiu de verdade lá; isso aqui

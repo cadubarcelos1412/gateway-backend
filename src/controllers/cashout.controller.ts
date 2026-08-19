@@ -550,6 +550,51 @@ export const markCashoutAsFailed = async (req: Request, res: Response): Promise<
 };
 
 /* -------------------------------------------------------------------------- */
+/* 🩹 4️⃣c Cancelar saque "approved" travado SEM devolver o saldo             */
+/*        (admin/master)                                                     */
+/* -------------------------------------------------------------------------- */
+/**
+ * Pro caso em que o dinheiro do saque preso vai ser resolvido por fora do
+ * app (ex.: Pix estornado e o master vai reenviar direto no painel da
+ * Zendry pra chave certa) — cancelar aqui sem devolver saldo evita que o
+ * seller receba de volta o valor duas vezes (uma pelo saldo interno, outra
+ * pelo reenvio manual).
+ */
+export const cancelCashoutWithoutRefund = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const token = req.headers.authorization?.replace("Bearer ", "") ?? "";
+    const payload = await decodeToken(token);
+
+    if (!payload || !["admin", "master"].includes(payload.role)) {
+      res.status(403).json({ status: false, msg: "Acesso negado. Somente admins podem fazer isso." });
+      return;
+    }
+
+    const { id } = req.params;
+    const { reason } = req.body;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      res.status(400).json({ status: false, msg: "ID inválido." });
+      return;
+    }
+    if (!reason || typeof reason !== "string" || !reason.trim()) {
+      res.status(400).json({ status: false, msg: "Motivo é obrigatório." });
+      return;
+    }
+
+    await CashoutService.cancelWithoutRefund(new Types.ObjectId(id), new Types.ObjectId(payload.id), reason.trim());
+
+    res.status(200).json({
+      status: true,
+      msg: "✅ Saque cancelado — nenhum valor foi devolvido ao saldo do seller.",
+    });
+  } catch (error: any) {
+    console.error("❌ Erro em cancelCashoutWithoutRefund:", error);
+    res.status(400).json({ status: false, msg: error.message || "Erro ao cancelar saque." });
+  }
+};
+
+/* -------------------------------------------------------------------------- */
 /* ✍️ 5️⃣ Registrar saque feito manualmente no painel da Zendry (admin/master) */
 /* -------------------------------------------------------------------------- */
 /**

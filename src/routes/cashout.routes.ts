@@ -7,6 +7,7 @@ import {
   approveCashoutRequest,
   rejectCashoutRequest,
   markCashoutAsFailed,
+  cancelCashoutWithoutRefund,
   recordManualCashout,
 } from "../controllers/cashout.controller";
 
@@ -68,6 +69,15 @@ router.post("/:id/reject", rejectCashoutRequest);
  * @access Protegido (admin/master)
  */
 router.post("/:id/mark-failed", markCashoutAsFailed);
+
+/**
+ * @route POST /api/cashouts/:id/cancel-no-refund
+ * @desc Saque "approved" travado, cancelado SEM devolver saldo -- pro caso
+ *       do dinheiro ser resolvido por fora (ex.: reenvio manual pela Zendry
+ *       depois de um estorno). Evita duplicar o crédito pro seller.
+ * @access Protegido (admin/master)
+ */
+router.post("/:id/cancel-no-refund", cancelCashoutWithoutRefund);
 
 /**
  * @route POST /api/cashouts/manual
