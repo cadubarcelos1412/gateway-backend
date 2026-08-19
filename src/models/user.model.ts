@@ -21,6 +21,15 @@ export interface IUser extends Document {
     setAt: Date;
   };
 
+  /** 🔐 Incrementado pra invalidar de uma vez todo token JWT já emitido pra
+   * essa conta — o JWT em si não guarda estado (fica válido até expirar,
+   * até 30 dias com "lembrar-me"), então trocar a senha sozinho NÃO
+   * desloga sessões já abertas. decodeToken (config/auth.ts) compara o
+   * tokenVersion embutido no token com o valor atual aqui; se não bater,
+   * o token é tratado como inválido mesmo sendo criptograficamente
+   * correto e ainda não expirado. */
+  tokenVersion: number;
+
   /** 🔐 Tokens e integrações externas */
   token?: {
     pushcut?: {
@@ -83,6 +92,8 @@ const userSchema = new Schema<IUser>(
       hash: { type: String },
       setAt: { type: Date },
     },
+
+    tokenVersion: { type: Number, default: 0 },
 
     token: {
       pushcut: { notificationUrl: String },

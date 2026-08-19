@@ -58,7 +58,10 @@ export const loginUser = async (req: Request, res: Response): Promise<void> => {
     // checam `twoFactorRequired` antes de decidir o que fazer) — pra
     // reativar: só setar a env var no Render, nenhum código muda.
     if (process.env.LOGIN_2FA_ENABLED !== "true") {
-      const token = await createToken({ id: String(user._id), role: user.role }, Boolean(rememberMe));
+      const token = await createToken(
+        { id: String(user._id), role: user.role, tokenVersion: user.tokenVersion },
+        Boolean(rememberMe)
+      );
       res.status(200).json({
         status: true,
         msg: "✅ Login realizado com sucesso.",
@@ -142,7 +145,10 @@ export const verifyLoginCode = async (req: Request, res: Response): Promise<void
       return;
     }
 
-    const token = await createToken({ id: String(user._id), role: user.role }, Boolean(rememberMe));
+    const token = await createToken(
+      { id: String(user._id), role: user.role, tokenVersion: user.tokenVersion },
+      Boolean(rememberMe)
+    );
 
     res.status(200).json({
       status: true,
