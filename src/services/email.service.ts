@@ -226,6 +226,38 @@ export async function sendPartnershipPercentageChangeEmail(
 }
 
 /**
+ * Avisa o destinatário que o pagador pediu pra revogar a parceria — a
+ * parceria continua valendo (splits continuam sendo pagos) até a data de
+ * carência, informada aqui. Best-effort, mesmo padrão dos outros e-mails de
+ * parceria: a revogação já foi registrada independente do e-mail sair.
+ *
+ * Criado em 2026-08-18: revogar sempre foi imediato e mudo — o destinatário
+ * só descobria quando um repasse esperado simplesmente não chegava.
+ */
+export async function sendPartnershipRevokedEmail(
+  to: string,
+  payerName: string,
+  percentage: number,
+  effectiveDate: Date,
+  actionUrl: string
+): Promise<void> {
+  const from = process.env.EMAIL_FROM || "PyxGate <onboarding@resend.dev>";
+  const formattedDate = effectiveDate.toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" });
+
+  await getResendClient().emails.send({
+    from,
+    to,
+    subject: `${payerName} encerrou a parceria com você`,
+    html: renderActionEmail(
+      `${payerName} encerrou a parceria com você`,
+      `${payerName} pediu pra encerrar a parceria de <strong>${percentage}%</strong> das vendas dele(a) com você. Ela continua valendo normalmente até <strong>${formattedDate}</strong> — depois disso, para de gerar repasse.`,
+      "Ver parceria",
+      actionUrl
+    ),
+  });
+}
+
+/**
  * Envia o código de verificação por e-mail via Resend. Erros de envio
  * (API key inválida, domínio não verificado, etc.) sobem pro chamador —
  * nunca engolimos silenciosamente uma falha de envio de código.

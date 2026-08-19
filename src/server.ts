@@ -14,6 +14,7 @@ import docsRoutes from "./routes/docs.routes";
 import { reconcilePendingZendryPix } from "./services/zendryReconciliation.service";
 import { releaseAllMaturedWallets } from "./services/wallet.service";
 import { reconcilePixPayoutStatuses } from "./services/pixPayoutReconciliation.service";
+import { revokeMaturedSplitRules } from "./services/splitRule.service";
 
 dotenv.config();
 
@@ -143,6 +144,24 @@ connectDB()
     setTimeout(() => {
       runPixPayoutReconciliation();
       setInterval(runPixPayoutReconciliation, TEN_MINUTES);
+    }, 30_000);
+
+    // 🤝 Fecha de vez parcerias cuja carência de revogação já passou (ver
+    // revokeSplitRule em seller.controller.ts) — o pagamento de split em si
+    // já tem um filtro defensivo próprio em transaction.service.ts, isso
+    // aqui só mantém o status "revoked" refletido pra exibição.
+    const runSplitRuleSweep = () => {
+      revokeMaturedSplitRules()
+        .then((r) => {
+          if (r.revoked > 0) {
+            console.log(`🤝 Parcerias revogadas por carência vencida: ${r.revoked}.`);
+          }
+        })
+        .catch((err) => console.error("❌ Erro no sweep de revogação de parcerias:", err));
+    };
+    setTimeout(() => {
+      runSplitRuleSweep();
+      setInterval(runSplitRuleSweep, TEN_MINUTES);
     }, 30_000);
   })
   .catch((err) => {

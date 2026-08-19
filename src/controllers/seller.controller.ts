@@ -8,7 +8,16 @@ import { Transaction } from "../models/transaction.model";
 import { ACQUIRER_KEYS } from "../acquirers";
 import { getOrCreateDefaultFeeConfig } from "../models/systemFeeConfig.model";
 import { SplitRule } from "../models/splitRule.model";
-import { sendPartnershipInviteEmail, sendPartnershipPercentageChangeEmail } from "../services/email.service";
+import {
+  sendPartnershipInviteEmail,
+  sendPartnershipPercentageChangeEmail,
+  sendPartnershipRevokedEmail,
+} from "../services/email.service";
+
+/** Carência entre pedir a revogação de uma parceria e ela parar de valer de
+ * verdade — decisão de negócio de 2026-08-18, pra não tirar o destinatário
+ * da comissão sem aviso nenhum. Ver splitRule.model.ts > revokeEffectiveAt. */
+const SPLIT_RULE_REVOKE_GRACE_DAYS = 15;
 
 /**
  * Agrega vendas/receita (só transações "deposit" aprovadas) por userId —
@@ -529,6 +538,7 @@ export const listReceivedSplitRules = async (req: Request, res: Response): Promi
       pendingPercentage: r.pendingPercentage ?? null,
       description: r.description,
       status: r.status,
+      revokeEffectiveAt: r.revokeEffectiveAt ?? null,
       createdAt: r.createdAt,
       payingSeller: r.payingSellerId
         ? { name: r.payingSellerId.name, email: r.payingSellerId.email }
@@ -838,7 +848,21 @@ function round100(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
-/* 🤝 Revogar uma regra de split própria */
+/**
+ * 🤝 Cancela um convite pendente OU pede a revogação de uma parceria já
+ * ativa — são dois casos bem diferentes, mesmo endpoint (é o mesmo botão
+ * "Trash" no frontend pros dois casos):
+ *
+ * - "pending" (convite ainda não aceito): nunca chegou a pagar nada, cancela
+ *   na hora, sem carência nem e-mail de revogação — não tem parceria de
+ *   verdade pra proteger ainda.
+ * - "active": não é mais imediato — a parceria continua "active" (splits
+ *   continuam sendo pagos normalmente) por SPLIT_RULE_REVOKE_GRACE_DAYS, e
+ *   só depois disso o sweep periódico (splitRule.service.ts >
+ *   revokeMaturedSplitRules) muda pra "revoked" de verdade. Decisão de
+ *   negócio de 2026-08-18 — antes disso era instantâneo e sem aviso nenhum
+ *   pro destinatário, mesmo já ativa.
+ */
 export const revokeSplitRule = async (req: Request, res: Response): Promise<void> => {
   try {
     const user = await getUserFromToken(req.headers.authorization);
@@ -859,18 +883,51 @@ export const revokeSplitRule = async (req: Request, res: Response): Promise<void
       return;
     }
 
-    const rule = await SplitRule.findOneAndUpdate(
-      { _id: id, payingSellerId: seller._id },
-      { $set: { status: "revoked" } },
-      { new: true }
-    );
-
-    if (!rule) {
+    const existing = await SplitRule.findOne({ _id: id, payingSellerId: seller._id });
+    if (!existing) {
       res.status(404).json({ status: false, msg: "Parceria não encontrada." });
       return;
     }
 
-    res.status(200).json({ status: true, msg: "✅ Parceria revogada.", rule });
+    // Convite ainda não aceito — nunca pagou nada, cancela direto.
+    if (existing.status === "pending") {
+      existing.status = "revoked";
+      await existing.save();
+      res.status(200).json({ status: true, msg: "✅ Convite cancelado.", rule: existing });
+      return;
+    }
+
+    if (existing.status !== "active") {
+      res.status(400).json({ status: false, msg: "Essa parceria não está mais ativa." });
+      return;
+    }
+
+    const effectiveAt = new Date(Date.now() + SPLIT_RULE_REVOKE_GRACE_DAYS * 24 * 60 * 60 * 1000);
+
+    const rule = await SplitRule.findOneAndUpdate(
+      { _id: id, payingSellerId: seller._id, status: "active" },
+      { $set: { revokeEffectiveAt: effectiveAt, revokeRequestedBy: user._id } },
+      { new: true }
+    );
+
+    if (!rule) {
+      res.status(404).json({ status: false, msg: "Parceria ativa não encontrada." });
+      return;
+    }
+
+    // Best-effort — a revogação já está agendada independente do e-mail sair.
+    try {
+      const actionUrl = `${(process.env.FRONTEND_URL || "https://www.pyxgate.com").replace(/\/$/, "")}/#/dashboard/split-rules`;
+      await sendPartnershipRevokedEmail(rule.recipientEmail, seller.name, rule.percentage, effectiveAt, actionUrl);
+    } catch (emailErr) {
+      console.error("⚠️ Falha ao enviar e-mail de revogação de parceria:", emailErr);
+    }
+
+    res.status(200).json({
+      status: true,
+      msg: `✅ Revogação agendada — a parceria continua valendo até ${effectiveAt.toLocaleDateString("pt-BR")}.`,
+      rule,
+    });
   } catch (error) {
     console.error("❌ Erro em revokeSplitRule:", error);
     res.status(500).json({ status: false, msg: "Erro interno ao revogar parceria." });

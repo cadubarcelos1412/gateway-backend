@@ -297,7 +297,14 @@ export class TransactionService {
     // Nome do destinatário é "snapshotado" aqui (igual recipientEmail no
     // SplitRule) pra Vendas/Dashboard do pagador mostrarem "repassado pra
     // Fulano" sem precisar de join toda vez que listam transações.
-    const splitRules = await SplitRule.find({ payingSellerId: seller._id, status: "active" }).session(session);
+    // Filtro defensivo em revokeEffectiveAt (além do "status: active") — o
+    // sweep periódico (revokeMaturedSplitRules) é quem normalmente já vira
+    // o status pra "revoked" quando a carência passa, mas isso aqui garante
+    // que nenhuma venda pague split de uma parceria revogada mesmo se o
+    // sweep atrasar por qualquer motivo.
+    const splitRules = (
+      await SplitRule.find({ payingSellerId: seller._id, status: "active" }).session(session)
+    ).filter((r) => !r.revokeEffectiveAt || r.revokeEffectiveAt.getTime() > Date.now());
     const recipientSellersById = splitRules.length
       ? new Map(
           (

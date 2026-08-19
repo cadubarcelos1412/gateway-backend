@@ -18,6 +18,15 @@ export interface ISplitRule extends Document {
   description?: string;
   status: SplitRuleStatus;
   createdBy: Types.ObjectId;
+  /** Quando setado, alguém pediu revogação — a parceria continua "active"
+   * (splits continuam valendo) até essa data, depois disso o sweep periódico
+   * (ver revokeMaturedSplitRules em splitRule.service.ts) muda o status pra
+   * "revoked" de verdade. Carência de 15 dias, decisão de negócio de
+   * 2026-08-18: revogar sempre foi imediato e sem aviso nenhum pro
+   * destinatário — agora sempre manda e-mail e dá um prazo antes de parar
+   * de valer. */
+  revokeEffectiveAt?: Date;
+  revokeRequestedBy?: Types.ObjectId;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -32,6 +41,8 @@ const SplitRuleSchema = new Schema<ISplitRule>(
     description: { type: String, trim: true },
     status: { type: String, enum: ["pending", "active", "revoked", "rejected"], default: "pending", index: true },
     createdBy: { type: Schema.Types.ObjectId, ref: "User", required: true },
+    revokeEffectiveAt: { type: Date },
+    revokeRequestedBy: { type: Schema.Types.ObjectId, ref: "User" },
   },
   { timestamps: true, versionKey: false }
 );
