@@ -4,6 +4,7 @@ import { decodeToken } from "../config/auth";
 import { User } from "../models/user.model";
 import { Seller } from "../models/seller.model";
 import { Subaccount } from "../models/subaccount.model";
+import { Wallet } from "../models/wallet.model";
 import { Transaction } from "../models/transaction.model";
 import { ACQUIRER_KEYS } from "../acquirers";
 import { getOrCreateDefaultFeeConfig } from "../models/systemFeeConfig.model";
@@ -235,7 +236,19 @@ export const getSellerById = async (req: Request, res: Response): Promise<void> 
       .limit(30)
       .lean();
 
-    res.status(200).json({ status: true, seller: { ...seller, ...stats }, stats, recentTransactions });
+    // Saldo de verdade do seller — o master precisa ver isso na tela de
+    // detalhe sem precisar pedir print pro seller ou ir direto no banco.
+    const wallet = await Wallet.findOne({ userId: seller.userId }).lean();
+    const availableBalance = wallet?.balance?.available || 0;
+    const pendingBalance =
+      wallet?.balance?.unAvailable?.reduce((sum, v) => sum + v.amount, 0) || 0;
+
+    res.status(200).json({
+      status: true,
+      seller: { ...seller, ...stats, availableBalance, pendingBalance },
+      stats,
+      recentTransactions,
+    });
   } catch (error) {
     console.error("❌ Erro em getSellerById:", error);
     res.status(500).json({ status: false, msg: "Erro interno ao buscar seller." });
