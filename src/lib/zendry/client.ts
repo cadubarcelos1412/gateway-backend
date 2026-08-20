@@ -7,8 +7,15 @@
 // Não há ambiente de sandbox documentado nem confirmado pra essa API — toda
 // a integração de origem foi validada contra produção mesmo, com valores
 // baixos (ex.: R$ 1,00). Ver ZENDRY-MIGRATION.md.
+//
+// Domínio trocado em 2026-08-20: api.zendry.com.br -> api.zendry.co. A
+// Zendry migrou pra um painel novo e ofereceu duas opções de integração —
+// "API Nativa" (nova, formato ainda não documentado pra gente) e "API
+// Legada (compatível zendry.com)", que mantém as mesmas rotas/parâmetros/
+// webhooks de antes, só trocando domínio e credenciais. Usando a legada
+// aqui por ser a migração de menor risco (zero mudança de código).
 
-export const ZENDRY_API_BASE = "https://api.zendry.com.br";
+export const ZENDRY_API_BASE = "https://api.zendry.co";
 
 function getCredentials(): { clientId: string; clientSecret: string } {
   const clientId = process.env.ZENDRY_CLIENT_ID;
