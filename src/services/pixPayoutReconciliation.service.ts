@@ -2,6 +2,7 @@ import { Types } from "mongoose";
 import CashoutRequest from "../models/cashoutRequest.model";
 import { getPixPaymentStatus } from "../lib/zendry/pixPayout";
 import { CashoutService } from "./cashout.service";
+import { mapZendryStatus } from "../lib/zendry/status-mapper";
 
 /**
  * Rede de segurança pro saque em Pix (envio, não recebimento) — mesma
@@ -37,17 +38,35 @@ export async function applyZendryPixPayoutWebhookStatus(
   const cashout = await CashoutRequest.findOne({ rail: "pix", externalReference: referenceCode });
   if (!cashout) return { applied: false };
 
-  if (rawStatus && rawStatus !== cashout.providerStatus) {
-    cashout.providerStatus = rawStatus;
+  // O polling REST (getPixPaymentStatus) devolve status em inglês
+  // ("completed", "canceled", "sent", "authorization_pending" — é o
+  // vocabulário que reconcilePixPayoutStatuses grava e que o resto do
+  // sistema (frontend, painel master) compara por igualdade exata). O
+  // webhook Nativo confirmado em 2026-08-21 manda em PORTUGUÊS
+  // ("concluido") — gravar isso direto quebrava a badge do seller (ficava
+  // "Pendente" pra sempre) e, pior, quebraria silenciosamente a devolução
+  // de saldo se a Zendry mandasse "cancelado" em vez de "canceled".
+  // Normaliza pro mesmo vocabulário do polling antes de gravar/comparar.
+  const normalizedStatus =
+    rawStatus === undefined
+      ? undefined
+      : mapZendryStatus(rawStatus) === "approved"
+        ? "completed"
+        : mapZendryStatus(rawStatus) === "cancelled"
+          ? "canceled"
+          : rawStatus; // pending/rejected/desconhecido: guarda o valor cru mesmo (auditoria, não é um estado final que a gente precise reconhecer aqui)
+
+  if (normalizedStatus && normalizedStatus !== cashout.providerStatus) {
+    cashout.providerStatus = normalizedStatus;
     await cashout.save();
   }
 
   // Mesmo critério de reconcilePixPayoutStatuses: só o status final
-  // "canceled" (grafia da própria Zendry) devolve o saldo.
-  if (rawStatus === "canceled") {
+  // "canceled" (já normalizado acima) devolve o saldo.
+  if (normalizedStatus === "canceled") {
     await CashoutService.refundFailedPixPayout(
       cashout._id as Types.ObjectId,
-      `Zendry cancelou o envio via webhook (status: ${rawStatus}).`
+      `Zendry cancelou o envio via webhook (status bruto: ${rawStatus}).`
     );
   }
 
