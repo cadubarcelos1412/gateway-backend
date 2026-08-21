@@ -138,9 +138,12 @@ export function parseZendryWebhook(payload: unknown): ParsedZendryWebhook | null
 //     amount_cents, description, end_to_end_id, environment, status: "pago" } }
 // `charge_id`/`external_id` vêm iguais nesse payload e batem com o
 // reference_code que a gente já salva como Transaction.externalId — ver
-// zendry.acquirer.ts. Só o evento "pix.received" foi confirmado até agora;
-// o de saque ("pix.sent"? não confirmado) cai em null aqui e cabe a quem
-// chama tentar como saque (ver zendryWebhook.controller.ts).
+// zendry.acquirer.ts. Evento de saque ("pix.sent") CONFIRMADO ao vivo em
+// 2026-08-21: { event: "pix.sent", data: { payout_id, amount_cents,
+// pix_key, pix_key_type, status: "concluido" (nota o "concluido" sem
+// "í", diferente do "pago" do pix.received), ... } } — payout_id bate com
+// CashoutRequest.externalReference (reference_code devolvido por
+// sendPixPayment, ver pixPayout.ts).
 export function parseZendryNativeWebhook(payload: unknown): ParsedZendryWebhook | null {
   if (typeof payload !== "object" || payload === null) return null;
   const body = payload as Record<string, unknown>;
@@ -149,17 +152,11 @@ export function parseZendryNativeWebhook(payload: unknown): ParsedZendryWebhook 
   const data = body.data as Record<string, unknown> | undefined;
   if (!event || !data) return null;
 
-  // charge_id/external_id confirmados pro evento "pix.received" (ver
-  // comentário acima). Os demais (payment_id, transfer_id, id) são
-  // candidatos NÃO confirmados pro evento de saque ("pix.sent") — payload
-  // real ainda não visto (ver ZendryUnrecognizedWebhook se nenhum bater).
   const externalId =
-    (data.charge_id as string | undefined) ??
+    (data.charge_id as string | undefined) ?? // pix.received
+    (data.payout_id as string | undefined) ?? // pix.sent
     (data.external_id as string | undefined) ??
-    (data.reference_code as string | undefined) ??
-    (data.payment_id as string | undefined) ??
-    (data.transfer_id as string | undefined) ??
-    (data.id as string | undefined);
+    (data.reference_code as string | undefined);
   if (!externalId) return null;
 
   const rawStatus = data.status as string | undefined;
