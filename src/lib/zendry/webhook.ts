@@ -45,22 +45,11 @@ export function verifyWebhookHeader(authorizationHeader: string | null, expected
 // assinatura" mostrado lá (ZENDRY_HMAC_WEBHOOK_SECRET) — não existe mais a
 // opção de só validar por `?key=` na query, como no mecanismo 1 acima.
 //
-// O nome exato do header que carrega a assinatura NÃO está documentado nem
-// confirmado — perguntamos pro suporte (Gabriel) mas ainda não veio resposta.
-// Por isso `findWebhookSignatureHeader` testa uma lista de nomes comuns nesse
-// tipo de integração, e `verifyWebhookHmacSignature` aceita tanto hex quanto
-// base64 (com ou sem prefixo `sha256=`) como formato da assinatura — não
-// enfraquece a segurança (quem não souber o segredo não gera a assinatura
-// certa em nenhum formato), só evita rejeitar o webhook de verdade por causa
-// de um palpite errado de formato. Quando a Zendry confirmar o header exato,
-// reduza a lista a só ele.
-const HMAC_SIGNATURE_HEADERS = [
-  "x-zendry-signature",
-  "x-signature",
-  "x-webhook-signature",
-  "x-hub-signature-256",
-  "signature",
-];
+// Header confirmado ao vivo em produção em 2026-08-21: `x-zendry-signature`,
+// formato `sha256=<hex>` (ver verifyWebhookHmacSignature). Testado com um
+// Pix real pago de ponta a ponta — assinatura bateu, transação aprovada
+// via webhook em ~30s sem precisar do polling de reconciliação.
+const HMAC_SIGNATURE_HEADERS = ["x-zendry-signature"];
 
 export function findWebhookSignatureHeader(
   headers: Record<string, unknown>

@@ -1,6 +1,5 @@
 import { Request, Response } from "express";
 import { ZendryWebhookEvent } from "../models/zendryWebhookEvent.model";
-import { ZendryWebhookRawLog } from "../models/zendryWebhookRawLog.model";
 import {
   verifyWebhookSecret,
   parseZendryWebhook,
@@ -17,29 +16,29 @@ import { applyZendryPixPayoutWebhookStatus } from "../services/pixPayoutReconcil
  * Recebe confirmações de Pix (`pix_qrcode`) e cartão (`card_payment`) da
  * Zendry. Esta é a URL cadastrada no painel novo da Zendry, TANTO no campo
  * "Webhook de recebimento (Pix recebido)" QUANTO em "Webhook de saque (Pix
- * enviado)" (modo Legado — mesmo formato de payload de antes, só a
- * autenticação mudou) — a Zendry não oferece dois endpoints separados no
- * painel pra isso, então um único handler decide o que fazer com o evento:
- * primeiro tenta como recebimento (Transaction por externalId); se não
- * achar nada, tenta como saque (CashoutRequest por externalReference). Os
- * dois lados nunca colidem: reference_code de cobrança PIX e de envio PIX
- * vêm de endpoints diferentes da Zendry, e cada evento só bate num dos dois.
+ * enviado)" — a Zendry não oferece dois endpoints separados no painel pra
+ * isso, então um único handler decide o que fazer com o evento: primeiro
+ * tenta como recebimento (Transaction por externalId); se não achar nada,
+ * tenta como saque (CashoutRequest por externalReference). Os dois lados
+ * nunca colidem: reference_code de cobrança PIX e de envio PIX vêm de
+ * endpoints diferentes da Zendry, e cada evento só bate num dos dois.
  *
  * Aceita DOIS mecanismos de autenticação, em ordem:
  * 1) `?key=SEU_ZENDRY_WEBHOOK_SECRET` — mecanismo antigo, mantido por
  *    retrocompatibilidade (não deve fazer diferença prática: nunca foi
  *    confirmado ninguém enviando com esse formato pro domínio novo).
- * 2) Assinatura HMAC-SHA256 em um header (ver findWebhookSignatureHeader em
- *    lib/zendry/webhook.ts pra lista de nomes de header aceitos e por quê —
- *    o nome exato ainda não foi confirmado pelo suporte da Zendry).
+ * 2) Assinatura HMAC-SHA256 no header `x-zendry-signature` (formato
+ *    `sha256=<hex>`) — CONFIRMADO ao vivo em produção em 2026-08-21, tanto
+ *    o modo Nativo (payload `{ event, data: {...} }`, status em português
+ *    "pago") quanto — presumivelmente, mesmo mecanismo — o Legado.
  *
  * ⚠️ Histórico: confirmado em produção em 2026-08-06 que nenhum webhook da
- * Zendry chegava aqui — a URL de callback nunca tinha sido cadastrada (nem
- * no domínio antigo, nem agora no painel novo até este fix, 2026-08-20). Por
- * isso existe zendryReconciliation.service.ts — poll periódico que consulta
- * a Zendry direto e aplica a mesma lógica daqui (applyZendryPaymentStatus),
- * como rede de segurança independente de webhook chegar ou não. Mantenha
- * esse poll mesmo depois deste fix, até confirmar webhooks reais chegando.
+ * Zendry chegava aqui — a URL de callback nunca tinha sido cadastrada. Depois
+ * (2026-08-20), a URL foi cadastrada mas a assinatura HMAC ainda rejeitava
+ * tudo (401) porque ZENDRY_HMAC_WEBHOOK_SECRET não existia nas env vars do
+ * Render — corrigido em 2026-08-21. Mantenha
+ * zendryReconciliation.service.ts (poll periódico) mesmo assim, como rede de
+ * segurança independente pra qualquer falha futura de entrega de webhook.
  */
 export const zendryWebhook = async (req: Request, res: Response): Promise<void> => {
   const providedKey = typeof req.query.key === "string" ? req.query.key : null;
@@ -67,17 +66,6 @@ export const zendryWebhook = async (req: Request, res: Response): Promise<void> 
       }
     }
   }
-
-  // 🩺 Log de diagnóstico temporário (ver ZendryWebhookRawLog) — captura
-  // TUDO que chega aqui, autenticado ou não, parseado ou não. Fire-and-
-  // forget: um erro salvando o log nunca pode derrubar o processamento
-  // real do webhook.
-  void ZendryWebhookRawLog.create({
-    headers: req.headers,
-    body: req.body,
-    authOk: legacyKeyOk || hmacOk,
-    authMethod: legacyKeyOk ? "legacy_key" : hmacOk ? "hmac" : "none",
-  }).catch((err) => console.error("⚠️ Falha ao salvar log de diagnóstico do webhook Zendry:", err));
 
   if (!legacyKeyOk && !hmacOk) {
     res.status(401).json({ status: false, msg: "Não autorizado." });
