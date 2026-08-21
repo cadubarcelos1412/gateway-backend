@@ -4,6 +4,7 @@ import { ZendryWebhookRawLog } from "../models/zendryWebhookRawLog.model";
 import {
   verifyWebhookSecret,
   parseZendryWebhook,
+  parseZendryNativeWebhook,
   findWebhookSignatureHeader,
   verifyWebhookHmacSignature,
 } from "../lib/zendry/webhook";
@@ -84,7 +85,7 @@ export const zendryWebhook = async (req: Request, res: Response): Promise<void> 
   }
 
   try {
-    const event = parseZendryWebhook(req.body);
+    const event = parseZendryWebhook(req.body) || parseZendryNativeWebhook(req.body);
     if (!event) {
       // Payload não reconhecido — não é um erro de processamento, apenas
       // não é um evento que sabemos interpretar.

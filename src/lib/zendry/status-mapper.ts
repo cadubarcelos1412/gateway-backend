@@ -6,11 +6,16 @@ import type { ZendryVerificationStatus } from "./types";
 // payloads reais recebidos em produção no projeto de origem. Se a Zendry
 // mandar um status novo que não bata em nenhuma regex, cai em "pending" —
 // prefira isso a interpretar errado um pagamento como aprovado/recusado.
+//
+// 2026-08-21: painel novo, modo Nativo, manda status em PORTUGUÊS
+// ("pago", confirmado em produção — ver ZendryWebhookRawLog) em vez do
+// inglês do modo Legado ("completed" etc.) — por isso as regexes cobrem
+// os dois idiomas.
 export function mapZendryStatus(rawStatus: string | undefined | null): ZendryVerificationStatus {
   const s = (rawStatus ?? "").toLowerCase();
-  if (/paid|complet|confirm|approv|success|accepted/.test(s)) return "approved";
-  if (/cancel|expir|refund|chargeback/.test(s)) return "cancelled";
-  if (/reject|fail|denied|declin|refus/.test(s)) return "rejected";
+  if (/paid|complet|confirm|approv|success|accepted|pago|aprovad|conclu/.test(s)) return "approved";
+  if (/cancel|expir|refund|chargeback|cancelad|expirad|estornad/.test(s)) return "cancelled";
+  if (/reject|fail|denied|declin|refus|recusad|falh|negad/.test(s)) return "rejected";
   return "pending";
 }
 

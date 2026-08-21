@@ -84,7 +84,7 @@ export interface CreateCardPaymentResult {
 
 // ── Webhook ──────────────────────────────────────────────────────────────
 
-export type ZendryNotificationType = "pix_qrcode" | "card_payment" | "checkout";
+export type ZendryNotificationType = "pix_qrcode" | "card_payment" | "checkout" | "pix_native";
 
 export interface ZendryWebhookPayload {
   notification_type: ZendryNotificationType;

@@ -141,3 +141,39 @@ export function parseZendryWebhook(payload: unknown): ParsedZendryWebhook | null
     raw: body as unknown as ZendryWebhookPayload,
   };
 }
+
+// Formato Nativo (painel novo, "Modo de webhook" = Nativo) — payload
+// completamente diferente do Legado acima. Confirmado ao vivo em produção
+// em 2026-08-21 (ver ZendryWebhookRawLog):
+//   { event: "pix.received", sent_at, data: { charge_id, external_id,
+//     amount_cents, description, end_to_end_id, environment, status: "pago" } }
+// `charge_id`/`external_id` vêm iguais nesse payload e batem com o
+// reference_code que a gente já salva como Transaction.externalId — ver
+// zendry.acquirer.ts. Só o evento "pix.received" foi confirmado até agora;
+// o de saque ("pix.sent"? não confirmado) cai em null aqui e cabe a quem
+// chama tentar como saque (ver zendryWebhook.controller.ts).
+export function parseZendryNativeWebhook(payload: unknown): ParsedZendryWebhook | null {
+  if (typeof payload !== "object" || payload === null) return null;
+  const body = payload as Record<string, unknown>;
+
+  const event = body.event as string | undefined;
+  const data = body.data as Record<string, unknown> | undefined;
+  if (!event || !data) return null;
+
+  const externalId =
+    (data.charge_id as string | undefined) ??
+    (data.external_id as string | undefined) ??
+    (data.reference_code as string | undefined);
+  if (!externalId) return null;
+
+  const rawStatus = data.status as string | undefined;
+
+  return {
+    notificationType: "pix_native",
+    externalId,
+    status: mapZendryStatus(rawStatus),
+    rawStatus,
+    paidAt: (data.paid_at as string | undefined) ?? (body.sent_at as string | undefined),
+    raw: body as unknown as ZendryWebhookPayload,
+  };
+}
