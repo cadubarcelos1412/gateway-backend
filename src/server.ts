@@ -38,7 +38,18 @@ const app = express();
 /* -------------------------------------------------------------------------- */
 /* 🌍 Middlewares globais                                                    */
 /* -------------------------------------------------------------------------- */
-app.use(express.json());
+// `verify` guarda os bytes crus do corpo em req.rawBody, sem mudar o
+// parsing normal pra ninguém — necessário pra validar assinatura HMAC de
+// webhook (Zendry, painel novo): recalcular a assinatura em cima de
+// JSON.stringify(req.body) não bate byte a byte com o que foi assinado
+// originalmente (ordem de chave, espaçamento etc. podem diferir).
+app.use(
+  express.json({
+    verify: (req, _res, buf) => {
+      (req as express.Request & { rawBody?: Buffer }).rawBody = buf;
+    },
+  })
+);
 
 // 🔒 Origens permitidas via env var (CSV) — sem ALLOWED_ORIGINS configurada,
 // libera geral (dev). Em produção, defina ALLOWED_ORIGINS com o(s) domínio(s)

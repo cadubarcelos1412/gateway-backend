@@ -116,7 +116,9 @@ router.post(
 /* -------------------------------------------------------------------------- */
 /**
  * - Atualiza status da transação com base no externalId (reference_code/muid)
- * - Exige `?key=` válido (ZENDRY_WEBHOOK_SECRET) em vez de assinatura HMAC
+ * - Aceita `?key=` (ZENDRY_WEBHOOK_SECRET, legado) OU assinatura HMAC-SHA256
+ *   num header (ZENDRY_HMAC_WEBHOOK_SECRET, painel novo) — ver
+ *   zendryWebhook.controller.ts
  */
 router.post(
   "/webhook/zendry",

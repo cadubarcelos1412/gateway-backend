@@ -1,3 +1,4 @@
+import crypto from "crypto";
 import type { ZendryWebhookPayload, ZendryNotificationType } from "./types";
 import { mapZendryStatus } from "./status-mapper";
 
@@ -33,6 +34,67 @@ export function verifyWebhookSecret(providedKey: string | null, expectedSecret: 
 
 export function verifyWebhookHeader(authorizationHeader: string | null, expectedValue: string): boolean {
   return !!authorizationHeader && authorizationHeader === expectedValue;
+}
+
+// ============================================================================
+// MECANISMO 3 — assinatura HMAC-SHA256, painel novo da Zendry (2026-08).
+// ============================================================================
+//
+// O painel novo (tanto modo "Nativo" quanto "Legado") exige registrar a URL
+// do webhook e assina cada chamada com HMAC-SHA256 usando o "Segredo de
+// assinatura" mostrado lá (ZENDRY_HMAC_WEBHOOK_SECRET) — não existe mais a
+// opção de só validar por `?key=` na query, como no mecanismo 1 acima.
+//
+// O nome exato do header que carrega a assinatura NÃO está documentado nem
+// confirmado — perguntamos pro suporte (Gabriel) mas ainda não veio resposta.
+// Por isso `findWebhookSignatureHeader` testa uma lista de nomes comuns nesse
+// tipo de integração, e `verifyWebhookHmacSignature` aceita tanto hex quanto
+// base64 (com ou sem prefixo `sha256=`) como formato da assinatura — não
+// enfraquece a segurança (quem não souber o segredo não gera a assinatura
+// certa em nenhum formato), só evita rejeitar o webhook de verdade por causa
+// de um palpite errado de formato. Quando a Zendry confirmar o header exato,
+// reduza a lista a só ele.
+const HMAC_SIGNATURE_HEADERS = [
+  "x-zendry-signature",
+  "x-signature",
+  "x-webhook-signature",
+  "x-hub-signature-256",
+  "signature",
+];
+
+export function findWebhookSignatureHeader(
+  headers: Record<string, unknown>
+): { header: string; value: string } | null {
+  for (const name of HMAC_SIGNATURE_HEADERS) {
+    const value = headers[name];
+    if (typeof value === "string" && value.length > 0) {
+      return { header: name, value };
+    }
+  }
+  return null;
+}
+
+function timingSafeEqualStrings(a: string, b: string): boolean {
+  const bufA = Buffer.from(a);
+  const bufB = Buffer.from(b);
+  if (bufA.length !== bufB.length) return false;
+  return crypto.timingSafeEqual(bufA, bufB);
+}
+
+// `rawBody` precisa ser os bytes exatos recebidos (ver server.ts, verify()
+// do express.json) — recalcular em cima de JSON.stringify(req.body) não bate
+// byte a byte com o que a Zendry assinou (ordem de chave, espaçamento etc.).
+export function verifyWebhookHmacSignature(
+  rawBody: Buffer,
+  providedSignature: string,
+  secret: string
+): boolean {
+  const expectedHex = crypto.createHmac("sha256", secret).update(rawBody).digest("hex");
+  const expectedBase64 = crypto.createHmac("sha256", secret).update(rawBody).digest("base64");
+
+  const cleaned = providedSignature.trim().replace(/^sha256=/i, "");
+
+  return timingSafeEqualStrings(cleaned, expectedHex) || timingSafeEqualStrings(cleaned, expectedBase64);
 }
 
 export interface ParsedZendryWebhook {

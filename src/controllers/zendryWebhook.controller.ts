@@ -1,29 +1,65 @@
 import { Request, Response } from "express";
 import { ZendryWebhookEvent } from "../models/zendryWebhookEvent.model";
-import { verifyWebhookSecret, parseZendryWebhook } from "../lib/zendry/webhook";
+import {
+  verifyWebhookSecret,
+  parseZendryWebhook,
+  findWebhookSignatureHeader,
+  verifyWebhookHmacSignature,
+} from "../lib/zendry/webhook";
 import { applyZendryPaymentStatus } from "../services/zendryPaymentStatus.service";
 
 /**
- * POST /api/transactions/webhook/zendry?key=SEU_ZENDRY_WEBHOOK_SECRET
+ * POST /api/transactions/webhook/zendry
  *
  * Recebe confirmações de Pix (`pix_qrcode`) e cartão (`card_payment`) da
- * Zendry. A autenticidade é validada por um segredo nosso na query string
- * (`?key=`) — ver ZENDRY-MIGRATION.md, seção Webhooks, sobre a divergência
- * com o mecanismo oficial (header Authorization) e por que esse projeto
- * usa o da query.
+ * Zendry. Esta é a URL a cadastrar no painel novo da Zendry, campo "Webhook
+ * de recebimento (Pix recebido)" (modo Legado — mesmo formato de payload de
+ * antes, só a autenticação mudou).
  *
- * ⚠️ Confirmado em produção em 2026-08-06: nenhum webhook da Zendry chegou
- * aqui, nunca, desde o deploy deste backend — a URL de callback foi
- * registrada manualmente na conta Zendry no projeto ANTERIOR (fora do
- * código, ver lib/zendry/webhook.ts) e provavelmente nunca foi atualizada
- * pra apontar aqui. Por isso existe zendryReconciliation.service.ts — poll
- * periódico que consulta a Zendry direto e aplica a mesma lógica daqui
- * (applyZendryPaymentStatus), como rede de segurança independente de
- * webhook chegar ou não.
+ * Aceita DOIS mecanismos de autenticação, em ordem:
+ * 1) `?key=SEU_ZENDRY_WEBHOOK_SECRET` — mecanismo antigo, mantido por
+ *    retrocompatibilidade (não deve fazer diferença prática: nunca foi
+ *    confirmado ninguém enviando com esse formato pro domínio novo).
+ * 2) Assinatura HMAC-SHA256 em um header (ver findWebhookSignatureHeader em
+ *    lib/zendry/webhook.ts pra lista de nomes de header aceitos e por quê —
+ *    o nome exato ainda não foi confirmado pelo suporte da Zendry).
+ *
+ * ⚠️ Histórico: confirmado em produção em 2026-08-06 que nenhum webhook da
+ * Zendry chegava aqui — a URL de callback nunca tinha sido cadastrada (nem
+ * no domínio antigo, nem agora no painel novo até este fix, 2026-08-20). Por
+ * isso existe zendryReconciliation.service.ts — poll periódico que consulta
+ * a Zendry direto e aplica a mesma lógica daqui (applyZendryPaymentStatus),
+ * como rede de segurança independente de webhook chegar ou não. Mantenha
+ * esse poll mesmo depois deste fix, até confirmar webhooks reais chegando.
  */
 export const zendryWebhook = async (req: Request, res: Response): Promise<void> => {
   const providedKey = typeof req.query.key === "string" ? req.query.key : null;
-  if (!verifyWebhookSecret(providedKey, process.env.ZENDRY_WEBHOOK_SECRET || "")) {
+  const legacyKeyOk = verifyWebhookSecret(providedKey, process.env.ZENDRY_WEBHOOK_SECRET || "");
+
+  let hmacOk = false;
+  if (!legacyKeyOk) {
+    const hmacSecret = process.env.ZENDRY_HMAC_WEBHOOK_SECRET || "";
+    const rawBody = (req as Request & { rawBody?: Buffer }).rawBody;
+
+    if (hmacSecret && rawBody) {
+      const found = findWebhookSignatureHeader(req.headers as Record<string, unknown>);
+      if (found) {
+        hmacOk = verifyWebhookHmacSignature(rawBody, found.value, hmacSecret);
+        if (hmacOk) {
+          console.log(`✅ Webhook Zendry autenticado via header "${found.header}".`);
+        } else {
+          console.warn(`⚠️ Webhook Zendry: assinatura no header "${found.header}" não bateu.`);
+        }
+      } else {
+        // Nenhum dos headers candidatos apareceu — loga os NOMES recebidos
+        // (nunca valores) pra descobrir o header real assim que a Zendry
+        // mandar tráfego de verdade.
+        console.warn("⚠️ Webhook Zendry sem assinatura reconhecida. Headers recebidos:", Object.keys(req.headers));
+      }
+    }
+  }
+
+  if (!legacyKeyOk && !hmacOk) {
     res.status(401).json({ status: false, msg: "Não autorizado." });
     return;
   }
