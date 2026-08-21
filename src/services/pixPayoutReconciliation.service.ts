@@ -19,6 +19,41 @@ import { CashoutService } from "./cashout.service";
  * CashoutService.refundFailedPixPayout, que é idempotente. Nunca refaz o
  * envio sozinho — só devolve o dinheiro.
  */
+/**
+ * Mesma lógica de reconcilePixPayoutStatuses (atualizar providerStatus +
+ * devolver saldo se cancelado) mas disparada por webhook em vez de poll —
+ * usado pelo endpoint compartilhado "Webhook de saque (Pix enviado)" que o
+ * painel novo da Zendry aponta pra cá (ver zendryWebhook.controller.ts).
+ * Não sabemos o `notification_type` exato que a Zendry usa pra esses
+ * eventos (não documentado), então quem chama tenta casar por
+ * externalReference independente do tipo declarado no payload — se não
+ * achar CashoutRequest nenhum, é porque o evento era de outra coisa (Pix
+ * recebido, cartão) e quem chama já tratou isso antes.
+ */
+export async function applyZendryPixPayoutWebhookStatus(
+  referenceCode: string,
+  rawStatus: string | undefined
+): Promise<{ applied: boolean }> {
+  const cashout = await CashoutRequest.findOne({ rail: "pix", externalReference: referenceCode });
+  if (!cashout) return { applied: false };
+
+  if (rawStatus && rawStatus !== cashout.providerStatus) {
+    cashout.providerStatus = rawStatus;
+    await cashout.save();
+  }
+
+  // Mesmo critério de reconcilePixPayoutStatuses: só o status final
+  // "canceled" (grafia da própria Zendry) devolve o saldo.
+  if (rawStatus === "canceled") {
+    await CashoutService.refundFailedPixPayout(
+      cashout._id as Types.ObjectId,
+      `Zendry cancelou o envio via webhook (status: ${rawStatus}).`
+    );
+  }
+
+  return { applied: true };
+}
+
 export async function reconcilePixPayoutStatuses(): Promise<{ checked: number; updated: number }> {
   const pending = await CashoutRequest.find({
     rail: "pix",

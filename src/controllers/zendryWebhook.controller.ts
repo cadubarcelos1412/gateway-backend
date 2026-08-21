@@ -7,14 +7,21 @@ import {
   verifyWebhookHmacSignature,
 } from "../lib/zendry/webhook";
 import { applyZendryPaymentStatus } from "../services/zendryPaymentStatus.service";
+import { applyZendryPixPayoutWebhookStatus } from "../services/pixPayoutReconciliation.service";
 
 /**
  * POST /api/transactions/webhook/zendry
  *
  * Recebe confirmações de Pix (`pix_qrcode`) e cartão (`card_payment`) da
- * Zendry. Esta é a URL a cadastrar no painel novo da Zendry, campo "Webhook
- * de recebimento (Pix recebido)" (modo Legado — mesmo formato de payload de
- * antes, só a autenticação mudou).
+ * Zendry. Esta é a URL cadastrada no painel novo da Zendry, TANTO no campo
+ * "Webhook de recebimento (Pix recebido)" QUANTO em "Webhook de saque (Pix
+ * enviado)" (modo Legado — mesmo formato de payload de antes, só a
+ * autenticação mudou) — a Zendry não oferece dois endpoints separados no
+ * painel pra isso, então um único handler decide o que fazer com o evento:
+ * primeiro tenta como recebimento (Transaction por externalId); se não
+ * achar nada, tenta como saque (CashoutRequest por externalReference). Os
+ * dois lados nunca colidem: reference_code de cobrança PIX e de envio PIX
+ * vêm de endpoints diferentes da Zendry, e cada evento só bate num dos dois.
  *
  * Aceita DOIS mecanismos de autenticação, em ordem:
  * 1) `?key=SEU_ZENDRY_WEBHOOK_SECRET` — mecanismo antigo, mantido por
@@ -90,7 +97,12 @@ export const zendryWebhook = async (req: Request, res: Response): Promise<void> 
       throw err;
     }
 
-    await applyZendryPaymentStatus(event.externalId, event.status);
+    const depositResult = await applyZendryPaymentStatus(event.externalId, event.status);
+    if (!depositResult.applied) {
+      // Não bateu com nenhuma Transaction (recebimento) — tenta como evento
+      // de saque (Pix enviado). Ver applyZendryPixPayoutWebhookStatus.
+      await applyZendryPixPayoutWebhookStatus(event.externalId, event.rawStatus);
+    }
 
     res.status(200).json({ status: true });
   } catch (error) {
