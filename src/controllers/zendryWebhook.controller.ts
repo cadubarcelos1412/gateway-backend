@@ -1,5 +1,7 @@
 import { Request, Response } from "express";
 import { ZendryWebhookEvent } from "../models/zendryWebhookEvent.model";
+import { ZendryUnrecognizedWebhook } from "../models/zendryUnrecognizedWebhook.model";
+import { Transaction } from "../models/transaction.model";
 import {
   verifyWebhookSecret,
   parseZendryWebhook,
@@ -75,8 +77,13 @@ export const zendryWebhook = async (req: Request, res: Response): Promise<void> 
   try {
     const event = parseZendryWebhook(req.body) || parseZendryNativeWebhook(req.body);
     if (!event) {
-      // Payload não reconhecido — não é um erro de processamento, apenas
-      // não é um evento que sabemos interpretar.
+      // Payload não reconhecido — não é um erro de processamento (responde
+      // 200 igual), mas registra pra investigar depois. Ver
+      // ZendryUnrecognizedWebhook — já aconteceu de um evento real (saque
+      // "pix.sent") cair aqui e ficar invisível por horas.
+      void ZendryUnrecognizedWebhook.create({ headers: req.headers, body: req.body }).catch((err) =>
+        console.error("⚠️ Falha ao registrar webhook Zendry não reconhecido:", err)
+      );
       res.status(200).json({ status: true });
       return;
     }
@@ -99,10 +106,31 @@ export const zendryWebhook = async (req: Request, res: Response): Promise<void> 
     }
 
     const depositResult = await applyZendryPaymentStatus(event.externalId, event.status);
+    // `depositResult.applied` só é true se uma TRANSIÇÃO de status
+    // aconteceu — uma Transaction já aprovada antes (retry idempotente da
+    // Zendry) bate applied:false mesmo tendo sido "encontrada". Por isso
+    // checa existência separado, só pra decidir se vale logar como
+    // "não reconhecido" — não influencia o processamento em si.
+    const depositFound =
+      depositResult.applied || !!(await Transaction.exists({ externalId: event.externalId }));
+
+    let matchedSomething = depositFound;
     if (!depositResult.applied) {
       // Não bateu com nenhuma Transaction (recebimento) — tenta como evento
       // de saque (Pix enviado). Ver applyZendryPixPayoutWebhookStatus.
-      await applyZendryPixPayoutWebhookStatus(event.externalId, event.rawStatus);
+      const payoutResult = await applyZendryPixPayoutWebhookStatus(event.externalId, event.rawStatus);
+      matchedSomething = matchedSomething || payoutResult.applied;
+    }
+
+    if (!matchedSomething) {
+      // Autenticou, formato reconhecido, mas o externalId não bateu com
+      // NENHUMA Transaction nem CashoutRequest — provavelmente o campo
+      // errado foi extraído do payload (ver candidatos em
+      // parseZendryNativeWebhook). Vale investigar, mas não é um erro que
+      // deva devolver 5xx pra Zendry.
+      void ZendryUnrecognizedWebhook.create({ headers: req.headers, body: req.body }).catch((err) =>
+        console.error("⚠️ Falha ao registrar webhook Zendry não reconhecido:", err)
+      );
     }
 
     res.status(200).json({ status: true });

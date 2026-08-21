@@ -149,10 +149,17 @@ export function parseZendryNativeWebhook(payload: unknown): ParsedZendryWebhook 
   const data = body.data as Record<string, unknown> | undefined;
   if (!event || !data) return null;
 
+  // charge_id/external_id confirmados pro evento "pix.received" (ver
+  // comentário acima). Os demais (payment_id, transfer_id, id) são
+  // candidatos NÃO confirmados pro evento de saque ("pix.sent") — payload
+  // real ainda não visto (ver ZendryUnrecognizedWebhook se nenhum bater).
   const externalId =
     (data.charge_id as string | undefined) ??
     (data.external_id as string | undefined) ??
-    (data.reference_code as string | undefined);
+    (data.reference_code as string | undefined) ??
+    (data.payment_id as string | undefined) ??
+    (data.transfer_id as string | undefined) ??
+    (data.id as string | undefined);
   if (!externalId) return null;
 
   const rawStatus = data.status as string | undefined;
