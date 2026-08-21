@@ -1,5 +1,6 @@
 import { Request, Response } from "express";
 import { ZendryWebhookEvent } from "../models/zendryWebhookEvent.model";
+import { ZendryWebhookRawLog } from "../models/zendryWebhookRawLog.model";
 import {
   verifyWebhookSecret,
   parseZendryWebhook,
@@ -65,6 +66,17 @@ export const zendryWebhook = async (req: Request, res: Response): Promise<void> 
       }
     }
   }
+
+  // 🩺 Log de diagnóstico temporário (ver ZendryWebhookRawLog) — captura
+  // TUDO que chega aqui, autenticado ou não, parseado ou não. Fire-and-
+  // forget: um erro salvando o log nunca pode derrubar o processamento
+  // real do webhook.
+  void ZendryWebhookRawLog.create({
+    headers: req.headers,
+    body: req.body,
+    authOk: legacyKeyOk || hmacOk,
+    authMethod: legacyKeyOk ? "legacy_key" : hmacOk ? "hmac" : "none",
+  }).catch((err) => console.error("⚠️ Falha ao salvar log de diagnóstico do webhook Zendry:", err));
 
   if (!legacyKeyOk && !hmacOk) {
     res.status(401).json({ status: false, msg: "Não autorizado." });
