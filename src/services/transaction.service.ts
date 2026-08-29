@@ -17,7 +17,7 @@ import { RiskEngine } from "./riskEngine";
 import { RetentionEngine } from "./retentionEngine";
 import { TransactionAuditService } from "./transactionAudit.service";
 
-import { resolveAcquirer } from "../acquirers";
+import { resolveAcquirer, resolveSellerAcquirer } from "../acquirers";
 import { CreateTransactionDTO, CreateTransactionResult, PaymentMethod } from "../acquirers/types";
 
 import { dispatchWebhookEvent } from "./webhook.service";
@@ -190,7 +190,11 @@ export class TransactionService {
 
     const { flags: riskFlags, level: riskLevel } = RiskEngine.evaluate({ amount, ip, seller });
 
-    const acquirerKey = (seller as any).acquirer || "zendry";
+    // 🏦 Adquirente por método (2026-08-30) — Pix e cartão podem apontar
+    // pra adquirentes diferentes agora (ex.: Sttart não processa cartão).
+    // Boleto ainda cai na mesma capability de "card" — não tem seleção
+    // própria hoje, mesmo comportamento de antes.
+    const acquirerKey = resolveSellerAcquirer(seller, method === "credit_card" ? "card" : method === "pix" ? "pix" : "card");
     const acquirer = resolveAcquirer(acquirerKey);
 
     const dto: CreateTransactionDTO = {
@@ -345,6 +349,7 @@ export class TransactionService {
           method,
           status: "pending",
           mode: "live",
+          acquirer: acquirerKey,
           description: dto.description,
           externalId,
           postback: postbackUrl,

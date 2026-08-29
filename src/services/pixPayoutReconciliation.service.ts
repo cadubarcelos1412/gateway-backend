@@ -1,8 +1,8 @@
 import { Types } from "mongoose";
 import CashoutRequest from "../models/cashoutRequest.model";
-import { getPixPaymentStatus } from "../lib/zendry/pixPayout";
 import { CashoutService } from "./cashout.service";
 import { mapZendryStatus } from "../lib/zendry/status-mapper";
+import { resolveAcquirer, AcquirerKey } from "../acquirers";
 
 /**
  * Rede de segurança pro saque em Pix (envio, não recebimento) — mesma
@@ -85,7 +85,17 @@ export async function reconcilePixPayoutStatuses(): Promise<{ checked: number; u
 
   for (const cashout of pending) {
     try {
-      const result = await getPixPaymentStatus(cashout.externalReference!);
+      // Snapshot gravado no envio (ver CashoutService.sendApprovedPixPayout)
+      // — sem ele (saques antigos), assume zendry, único caso possível na
+      // época em que esse campo não existia.
+      const acquirerKey: AcquirerKey = (cashout.acquirer as AcquirerKey) || "zendry";
+      const acquirer = resolveAcquirer(acquirerKey);
+      if (!acquirer.getPayoutStatus) {
+        console.error(`⚠️ Adquirente "${acquirerKey}" não implementa getPayoutStatus — pulando reconciliação do saque ${(cashout._id as Types.ObjectId).toString()}.`);
+        continue;
+      }
+
+      const result = await acquirer.getPayoutStatus(cashout.externalReference!);
       if (result.status !== cashout.providerStatus) {
         cashout.providerStatus = result.status;
         await cashout.save();

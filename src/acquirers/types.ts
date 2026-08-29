@@ -7,7 +7,25 @@ export type PaymentMethod = "pix" | "credit_card" | "boleto";
  * Nome lógico da adquirente.
  * Adicione aqui quando criar novos adaptadores (ex: "getnet", "cielo").
  */
-export type AcquirerName = "zendry";
+export type AcquirerName = "zendry" | "sttart";
+
+/* -------------------------------------------------------------------------- */
+/* 🏦 Adquirente por método (2026-08-30) — ver resolveSellerAcquirer          */
+/* -------------------------------------------------------------------------- */
+
+export type AcquirerCapability = "pix" | "card" | "swap";
+
+/** Forma mínima que `resolveSellerAcquirer` precisa de um Seller — não
+ * importa `ISeller` de propósito, pra ficar uma função pura, fácil de
+ * testar com objeto literal, sem precisar de Mongoose/banco. */
+export interface SellerAcquirerShape {
+  acquirer?: AcquirerName;
+  acquirerConfig?: {
+    pix?: AcquirerName | null;
+    card?: AcquirerName | null;
+    swap?: AcquirerName | null;
+  };
+}
 
 /**
  * Payload mínimo para criar uma transação em qualquer adquirente
@@ -104,3 +122,53 @@ export interface AcquirerAdapter {
    */
   createTransaction(data: CreateTransactionDTO): Promise<CreateTransactionResult>;
 }
+
+/* -------------------------------------------------------------------------- */
+/* 💸 Saque (cash-out) — moldado no formato que lib/zendry/pixPayout.ts já    */
+/* usa, pra ZendryAcquirer virar um wrapper fino sem mudar comportamento.    */
+/* -------------------------------------------------------------------------- */
+
+export type PixKeyType = "cpf" | "cnpj" | "email" | "phone" | "random";
+
+export type SendPayoutInput = {
+  /** Id do nosso lado (CashoutRequest) — usado como chave de idempotência na adquirente. */
+  idempotentId: string;
+  pixKeyType: PixKeyType;
+  pixKey: string;
+  receiverName?: string;
+  receiverDocument?: string;
+  valueCents: number;
+};
+
+export type SendPayoutResult = {
+  externalReference: string;
+  status: string;
+};
+
+export type PayoutStatusResult = {
+  externalReference: string;
+  status: string;
+};
+
+/* -------------------------------------------------------------------------- */
+/* 🔄 Swap pra stablecoin (USDT) — cobre cotação + envio numa única chamada. */
+/* Cada adapter decide por dentro como cotar+enviar (Zendry: wallet-tesouro  */
+/* pré-financiada; Sttart: compra de verdade a cada saque via quotationId). */
+/* -------------------------------------------------------------------------- */
+
+export type SwapInput = {
+  /** Id do nosso lado (CashoutRequest) — usado como chave de idempotência na adquirente. */
+  idempotentId: string;
+  /** Valor em BRL já líquido (depois da taxa) que deve virar USDT. */
+  netAmountBRL: number;
+  /** Endereço da carteira USDT de destino informado pelo seller. */
+  destinationAddress: string;
+};
+
+export type SwapResult = {
+  externalReference: string;
+  status: string;
+  usdtAmount: number;
+  /** Preço de 1 USDT em BRL usado nessa operação — pra auditoria/exibição. */
+  quotedBrlPrice: number;
+};

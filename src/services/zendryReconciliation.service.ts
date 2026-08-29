@@ -1,5 +1,4 @@
 import { Transaction } from "../models/transaction.model";
-import { Seller } from "../models/seller.model";
 import { zendryFetchWithRetry } from "../lib/zendry/client";
 import { mapZendryStatus } from "../lib/zendry/status-mapper";
 import { applyZendryPaymentStatus } from "./zendryPaymentStatus.service";
@@ -105,12 +104,20 @@ interface PixLikeTransaction {
   method: string;
   mode: string;
   externalId?: string | null;
+  acquirer?: string;
 }
 
 /**
- * Se a transação for um Pix "pending" em modo live, checa a Zendry ao vivo
- * (throttlado). Retorna true se o status mudou — quem chama deve recarregar
- * a transação do banco antes de responder.
+ * Se a transação for um Pix "pending" em modo live, checa a adquirente ao
+ * vivo (throttlado) — Zendry ou Sttart, conforme o snapshot gravado na
+ * criação (transaction.acquirer, ver transaction.service.ts). Retorna true
+ * se o status mudou — quem chama deve recarregar a transação do banco antes
+ * de responder.
+ *
+ * Import de sttartReconciliation.service.ts feito dentro da função (não no
+ * topo do arquivo) só pra evitar import circular — este arquivo é o ponto
+ * de entrada histórico chamado por transaction.controller.ts/payment.controller.ts,
+ * e sttartReconciliation.service.ts não precisa nada daqui.
  */
 export async function refreshPendingPixIfNeeded(transaction: PixLikeTransaction): Promise<boolean> {
   if (!LIVE_CHECK_ENABLED) return false;
@@ -125,7 +132,10 @@ export async function refreshPendingPixIfNeeded(transaction: PixLikeTransaction)
   lastLiveCheckAt.set(key, now);
 
   try {
-    const { applied } = await checkSingleZendryPix(transaction.externalId);
+    const applied =
+      transaction.acquirer === "sttart"
+        ? (await (await import("./sttartReconciliation.service")).checkSingleSttartPix(transaction.externalId)).applied
+        : (await checkSingleZendryPix(transaction.externalId)).applied;
     if (applied) lastLiveCheckAt.delete(key); // resolvida — libera memória
     return applied;
   } catch (err) {
@@ -137,14 +147,15 @@ export async function refreshPendingPixIfNeeded(transaction: PixLikeTransaction)
 export async function reconcilePendingZendryPix(): Promise<ReconciliationResult> {
   const cutoff = new Date(Date.now() - MIN_AGE_MINUTES * 60 * 1000);
 
-  const zendrySellerIds = (await Seller.find({ acquirer: "zendry" }).select("userId")).map((s) => s.userId);
-
   const pending = await Transaction.find({
     method: "pix",
     mode: "live",
     status: "pending",
     createdAt: { $lte: cutoff },
-    userId: { $in: zendrySellerIds },
+    // Snapshot gravado na criação (ver transaction.service.ts) — inclui
+    // `null` pra cobrir transações criadas antes desse campo existir
+    // (época em que só a Zendry existia, então é seguro assumir zendry).
+    acquirer: { $in: ["zendry", null] },
   }).limit(500);
 
   const result: ReconciliationResult = { checked: pending.length, updated: 0, errors: [] };

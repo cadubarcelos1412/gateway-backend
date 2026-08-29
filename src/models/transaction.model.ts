@@ -34,6 +34,10 @@ export interface ITransaction extends Document {
   creditedAt?: Date;
   /** "test" para transações criadas com uma chave de API sk_test_...; "live" para dinheiro real. */
   mode: "test" | "live";
+  /** Snapshot de qual adquirente processou essa transação (Seller.acquirer no momento da criação) —
+   * necessário pra reconciliação (zendryReconciliation.service.ts / sttartReconciliation.service.ts)
+   * saber qual API consultar. Ausente em transações antigas, criadas antes desse campo existir. */
+  acquirer?: "zendry" | "sttart";
   description?: string;
   externalId?: string;
   postback?: string;
@@ -109,6 +113,12 @@ const TransactionSchema = new Schema<ITransaction>(
       index: true,
     },
 
+    acquirer: {
+      type: String,
+      enum: ["zendry", "sttart"],
+      index: true,
+    },
+
     description: { type: String, trim: true, maxlength: 255 },
     externalId: { type: String, index: true },
     postback: { type: String },
@@ -177,6 +187,11 @@ TransactionSchema.index({ userId: 1, createdAt: -1 });
 TransactionSchema.index({ userId: 1, mode: 1, createdAt: -1 });
 TransactionSchema.index({ status: 1 });
 TransactionSchema.index({ method: 1 });
+// Consultas do painel master (getKpas/getAnalytics) filtram por status +
+// intervalo de data SEM userId — os índices acima (todos começando por
+// userId) não ajudam nesse caso. Sem isso, todo carregamento do dashboard
+// master fazia varredura completa da coleção mesmo já filtrando por data.
+TransactionSchema.index({ status: 1, createdAt: -1 });
 TransactionSchema.index({ "purchaseData.customer.document": 1 });
 TransactionSchema.index({ "purchaseData.customer.email": 1 });
 TransactionSchema.index({ riskFlags: 1 });

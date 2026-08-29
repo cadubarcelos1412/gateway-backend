@@ -1,12 +1,16 @@
 import { Request, Response } from "express";
 import mongoose, { Types } from "mongoose";
 import bcrypt from "bcryptjs";
+import fs from "fs/promises";
 import { decodeToken } from "../config/auth";
 import { User, IUser } from "../models/user.model";
 import { CashoutService } from "../services/cashout.service";
+import { WireCashoutService, CreateWireCashoutInput } from "../services/wireCashout.service";
 import CashoutRequest from "../models/cashoutRequest.model";
 import { Seller } from "../models/seller.model";
 import { SavedBeneficiary } from "../models/savedBeneficiary.model";
+import { cloudinary } from "../config/cloudinary";
+import { signedAuthenticatedUrl } from "../utils/cloudinarySecureUrl";
 
 /**
  * Bloqueia saque de quem ainda não tem KYC aprovado — antes só o frontend
@@ -315,6 +319,10 @@ export const listMyCashoutRequests = async (req: Request, res: Response): Promis
         externalReference: r.externalReference || null,
         providerStatus: r.providerStatus || null,
         rejectionReason: r.rejectionReason || null,
+        maxBrlAmount: r.maxBrlAmount ?? null,
+        wireDetails: r.wireDetails || null,
+        wireQuote: r.wireQuote || null,
+        wireExecution: r.wireExecution || null,
         payerName,
         payerDocument,
         createdAt: r.createdAt,
@@ -366,6 +374,11 @@ export const listCashoutRequests = async (req: Request, res: Response): Promise<
         createdAt: r.createdAt,
         approvedAt: r.approvedAt || null,
         rejectionReason: r.rejectionReason || null,
+        maxBrlAmount: r.maxBrlAmount ?? null,
+        wireDetails: r.wireDetails || null,
+        wireQuote: r.wireQuote || null,
+        wireExecution: r.wireExecution || null,
+        wireCompliance: r.wireCompliance || null,
       })),
     });
   } catch (error) {
@@ -655,5 +668,208 @@ export const recordManualCashout = async (req: Request, res: Response): Promise<
   } catch (error: any) {
     console.error("❌ Erro em recordManualCashout:", error);
     res.status(500).json({ status: false, msg: error.message || "Erro ao registrar saque manual." });
+  }
+};
+
+/* -------------------------------------------------------------------------- */
+/* 🌐 6️⃣ Wire internacional (SWIFT via Sttart) — fluxo manual assistido      */
+/* -------------------------------------------------------------------------- */
+/**
+ * Só cota e calcula o teto — NÃO cria nada, NÃO toca no saldo. Usado pela
+ * tela de pedido pra mostrar "isto é o valor MÁXIMO que será debitado"
+ * antes do seller confirmar o envio de verdade (ver plano de wire —
+ * evita assumir risco cambial sem o seller saber o teto de antemão).
+ */
+export const previewWireQuoteRequest = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const token = req.headers.authorization?.replace("Bearer ", "") ?? "";
+    const payload = await decodeToken(token);
+    if (!payload?.id) {
+      res.status(403).json({ status: false, msg: "Token inválido." });
+      return;
+    }
+
+    const { foreignAmount, currency } = req.body;
+    if (!foreignAmount || Number(foreignAmount) <= 0) {
+      res.status(400).json({ status: false, msg: "Valor inválido." });
+      return;
+    }
+    if (currency !== "USD" && currency !== "EUR") {
+      res.status(400).json({ status: false, msg: "Moeda inválida — use USD ou EUR." });
+      return;
+    }
+
+    const preview = await WireCashoutService.previewWireQuote(new Types.ObjectId(payload.id), Number(foreignAmount), currency);
+
+    res.status(200).json({ status: true, data: preview });
+  } catch (error: any) {
+    console.error("❌ Erro em previewWireQuoteRequest:", error);
+    res.status(400).json({ status: false, msg: error.message || "Erro ao cotar wire." });
+  }
+};
+
+/**
+ * Seller cria o pedido — multipart (`invoice` opcional + `payload` com o
+ * resto dos campos em JSON, ver WireTransferPage.tsx). Nada é enviado de
+ * verdade aqui — só cota, congela o teto do saldo e registra o pedido pra
+ * fila de aprovação do master (ver services/wireCashout.service.ts).
+ */
+export const createWireCashoutRequest = async (req: Request, res: Response): Promise<void> => {
+  const file = req.file;
+  try {
+    const token = req.headers.authorization?.replace("Bearer ", "") ?? "";
+    const payload = await decodeToken(token);
+    if (!payload?.id) {
+      res.status(403).json({ status: false, msg: "Token inválido." });
+      return;
+    }
+
+    let body: Partial<CreateWireCashoutInput>;
+    try {
+      body = JSON.parse(req.body.payload || "{}");
+    } catch {
+      res.status(400).json({ status: false, msg: "Campo 'payload' inválido (deve ser JSON)." });
+      return;
+    }
+
+    let invoice: { url: string; mimeType?: string } | undefined;
+    if (file) {
+      try {
+        // 🔒 type:"authenticated" — mesma correção aplicada aos documentos de
+        // KYC (auditoria de segurança 2026-08-30): invoice de wire também é
+        // documento sensível de negócio, não deveria ficar público por padrão.
+        const result = await cloudinary.uploader.upload(file.path, {
+          folder: `wire-invoices/${payload.id}`,
+          resource_type: "auto",
+          type: "authenticated",
+          public_id: `invoice-${Date.now()}`,
+        });
+        invoice = { url: signedAuthenticatedUrl(result.public_id, result.resource_type), mimeType: result.resource_type };
+      } catch (err) {
+        console.error("❌ Falha ao enviar invoice pro Cloudinary:", err);
+        res.status(500).json({ status: false, msg: "Erro ao enviar a invoice para o serviço de armazenamento." });
+        return;
+      } finally {
+        await fs.unlink(file.path).catch((cleanupErr) => console.warn("⚠️ Falha ao remover arquivo temporário:", cleanupErr));
+      }
+    }
+
+    const cashout = await WireCashoutService.createWireCashout(new Types.ObjectId(payload.id), {
+      foreignAmount: Number(body.foreignAmount),
+      currency: body.currency as "USD" | "EUR",
+      beneficiary: body.beneficiary!,
+      bank: body.bank!,
+      intermediaryBank: body.intermediaryBank,
+      contact: body.contact!,
+      feeType: body.feeType as "SHA" | "OUR" | "BEN",
+      invoice,
+      invoiceData: body.invoiceData,
+    });
+
+    res.status(201).json({
+      status: true,
+      msg: "✅ Pedido de wire internacional criado — aguardando aprovação.",
+      data: {
+        id: (cashout._id as Types.ObjectId).toString(),
+        maxBrlAmount: cashout.maxBrlAmount,
+        wireQuote: cashout.wireQuote,
+        status: cashout.status,
+      },
+    });
+  } catch (error: any) {
+    if (file) await fs.unlink(file.path).catch(() => undefined);
+    console.error("❌ Erro em createWireCashoutRequest:", error);
+    res.status(400).json({ status: false, msg: error.message || "Erro ao criar pedido de wire." });
+  }
+};
+
+/**
+ * Master confirma — SÓ depois de já ter executado o wire manualmente no
+ * painel da Sttart. Ver services/wireCashout.service.ts pra idempotência/
+ * validação do teto/checklist de compliance (tudo validado no backend, não
+ * só desabilitando botão na UI).
+ */
+export const completeWireCashoutRequest = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const token = req.headers.authorization?.replace("Bearer ", "") ?? "";
+    const payload = await decodeToken(token);
+    if (!payload || !["admin", "master"].includes(payload.role)) {
+      res.status(403).json({ status: false, msg: "Acesso negado. Somente admins podem confirmar wire." });
+      return;
+    }
+
+    const { id } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      res.status(400).json({ status: false, msg: "ID inválido." });
+      return;
+    }
+
+    const { executedForeignAmount, executedNetAmount, swiftReference, uetr, adminNote, checks } = req.body;
+
+    const cashout = await WireCashoutService.completeWireCashout(
+      new Types.ObjectId(id),
+      new Types.ObjectId(payload.id),
+      {
+        executedForeignAmount: Number(executedForeignAmount),
+        executedNetAmount: Number(executedNetAmount),
+        swiftReference,
+        uetr,
+        adminNote,
+      },
+      {
+        beneficiaryVerified: Boolean(checks?.beneficiaryVerified),
+        bankDetailsVerified: Boolean(checks?.bankDetailsVerified),
+        documentationVerified: Boolean(checks?.documentationVerified),
+        sanctionsChecked: Boolean(checks?.sanctionsChecked),
+        kycVerified: Boolean(checks?.kycVerified),
+      }
+    );
+
+    res.status(200).json({
+      status: true,
+      msg: "✅ Wire registrado como enviado manualmente.",
+      data: {
+        cashoutId: (cashout._id as Types.ObjectId).toString(),
+        amount: cashout.amount,
+        netAmount: cashout.netAmount,
+        wireExecution: cashout.wireExecution,
+      },
+    });
+  } catch (error: any) {
+    console.error("❌ Erro em completeWireCashoutRequest:", error);
+    res.status(400).json({ status: false, msg: error.message || "Erro ao confirmar wire." });
+  }
+};
+
+export const rejectWireCashoutRequest = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const token = req.headers.authorization?.replace("Bearer ", "") ?? "";
+    const payload = await decodeToken(token);
+    if (!payload || !["admin", "master"].includes(payload.role)) {
+      res.status(403).json({ status: false, msg: "Acesso negado. Somente admins podem rejeitar wire." });
+      return;
+    }
+
+    const { id } = req.params;
+    const { reason } = req.body;
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      res.status(400).json({ status: false, msg: "ID inválido." });
+      return;
+    }
+    if (!reason || typeof reason !== "string" || !reason.trim()) {
+      res.status(400).json({ status: false, msg: "Motivo de rejeição é obrigatório." });
+      return;
+    }
+
+    const cashout = await WireCashoutService.rejectWireCashout(new Types.ObjectId(id), new Types.ObjectId(payload.id), reason.trim());
+
+    res.status(200).json({
+      status: true,
+      msg: "🚫 Pedido de wire rejeitado — saldo devolvido integralmente.",
+      data: { cashoutId: (cashout._id as Types.ObjectId).toString() },
+    });
+  } catch (error: any) {
+    console.error("❌ Erro em rejectWireCashoutRequest:", error);
+    res.status(400).json({ status: false, msg: error.message || "Erro ao rejeitar wire." });
   }
 };

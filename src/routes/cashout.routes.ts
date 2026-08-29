@@ -1,4 +1,5 @@
 import { Router } from "express";
+import multer from "multer";
 import {
   createCashoutRequest,
   createCryptoCashoutRequest,
@@ -9,9 +10,26 @@ import {
   markCashoutAsFailed,
   cancelCashoutWithoutRefund,
   recordManualCashout,
+  createWireCashoutRequest,
+  completeWireCashoutRequest,
+  rejectWireCashoutRequest,
+  previewWireQuoteRequest,
 } from "../controllers/cashout.controller";
+import { requireAuth } from "../middleware/requireAuth";
+import { sensitiveActionRateLimit } from "../middleware/authRateLimit";
 
 const router = Router();
+// 🔒 Limite de tamanho + tipo de arquivo (achado de auditoria de segurança
+// 2026-08-30) — antes não tinha nenhum dos dois.
+const upload = multer({
+  dest: "uploads/",
+  limits: { fileSize: 10 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    const allowed = ["image/jpeg", "image/png", "application/pdf"];
+    if (allowed.includes(file.mimetype)) cb(null, true);
+    else cb(new Error("Apenas arquivos JPG, PNG ou PDF são permitidos."));
+  },
+});
 
 /* -------------------------------------------------------------------------- */
 /* 🏦 ROTAS DE CASHOUT / SAQUES                                              */
@@ -22,7 +40,9 @@ const router = Router();
  * @desc Criar nova solicitação de saque (seller)
  * @access Protegido (token JWT)
  */
-router.post("/request", createCashoutRequest);
+// 🔒 sensitiveActionRateLimit (achado de auditoria de segurança 2026-08-30)
+// — criação de saque não tinha limite nenhum antes.
+router.post("/request", sensitiveActionRateLimit, createCashoutRequest);
 
 /**
  * @route POST /api/cashouts/request/usdt
@@ -31,7 +51,7 @@ router.post("/request", createCashoutRequest);
  *       CashoutService.createCryptoCashout pras validações/limites.
  * @access Protegido (token JWT)
  */
-router.post("/request/usdt", createCryptoCashoutRequest);
+router.post("/request/usdt", sensitiveActionRateLimit, createCryptoCashoutRequest);
 
 /**
  * @route GET /api/cashouts/mine
@@ -88,5 +108,38 @@ router.post("/:id/cancel-no-refund", cancelCashoutWithoutRefund);
  * @access Protegido (admin/master)
  */
 router.post("/manual", recordManualCashout);
+
+/**
+ * @route POST /api/cashouts/request/wire
+ * @desc Criar pedido de wire internacional (SWIFT via Sttart) — 100% manual
+ *       do lado da adquirente, ver services/wireCashout.service.ts. Multipart:
+ *       campo `invoice` (arquivo, opcional) + `payload` (JSON, resto dos dados).
+ * @access Protegido (token JWT)
+ */
+router.post("/request/wire", requireAuth, sensitiveActionRateLimit, upload.single("invoice"), createWireCashoutRequest);
+
+/**
+ * @route POST /api/cashouts/quote/wire
+ * @desc Só cota e calcula o teto (não cria nada, não toca no saldo) — pra
+ *       a tela mostrar o valor MÁXIMO antes do seller confirmar o pedido.
+ * @access Protegido (token JWT)
+ */
+router.post("/quote/wire", previewWireQuoteRequest);
+
+/**
+ * @route POST /api/cashouts/:id/complete-wire
+ * @desc Master confirma um wire já executado manualmente no painel da
+ *       Sttart — é aqui que o saldo/ledger são de fato movimentados.
+ * @access Protegido (admin/master)
+ */
+router.post("/:id/complete-wire", completeWireCashoutRequest);
+
+/**
+ * @route POST /api/cashouts/:id/reject-wire
+ * @desc Rejeita um pedido de wire ainda pendente — devolve o teto congelado
+ *       integralmente pro saldo.
+ * @access Protegido (admin/master)
+ */
+router.post("/:id/reject-wire", rejectWireCashoutRequest);
 
 export default router;

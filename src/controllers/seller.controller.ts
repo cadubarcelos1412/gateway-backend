@@ -6,7 +6,8 @@ import { Seller } from "../models/seller.model";
 import { Subaccount } from "../models/subaccount.model";
 import { Wallet } from "../models/wallet.model";
 import { Transaction } from "../models/transaction.model";
-import { ACQUIRER_KEYS } from "../acquirers";
+import { ACQUIRER_KEYS, resolveSellerAcquirer } from "../acquirers";
+import { AcquirerCapability } from "../acquirers/types";
 import { getOrCreateDefaultFeeConfig } from "../models/systemFeeConfig.model";
 import { SplitRule } from "../models/splitRule.model";
 import {
@@ -394,8 +395,101 @@ export const toggleAutoWithdraw = async (req: Request, res: Response): Promise<v
   }
 };
 
-/* 🏦 Definir qual adquirente processa as transações de um seller – Apenas master */
-export const updateSellerAcquirer = async (req: Request, res: Response): Promise<void> => {
+/**
+ * 🌐 Libera/bloqueia o pedido de wire internacional (SWIFT via Sttart) de um
+ * seller — apenas master. Desligado por padrão (ver seller.model.ts), é
+ * operação sensível (câmbio, compliance), liberada seller a seller.
+ */
+export const toggleWireEnabled = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const user = await getUserFromToken(req.headers.authorization);
+    if (!user || user.role !== "master") {
+      res.status(403).json({ status: false, msg: "Acesso negado. Apenas master pode alterar isso." });
+      return;
+    }
+
+    const { id } = req.params;
+    const { enabled } = req.body;
+
+    if (!Types.ObjectId.isValid(id)) {
+      res.status(400).json({ status: false, msg: "ID de seller inválido." });
+      return;
+    }
+    if (typeof enabled !== "boolean") {
+      res.status(400).json({ status: false, msg: "Campo 'enabled' deve ser true ou false." });
+      return;
+    }
+
+    const seller = await Seller.findByIdAndUpdate(id, { wireEnabled: enabled }, { new: true }).lean();
+    if (!seller) {
+      res.status(404).json({ status: false, msg: "Seller não encontrado." });
+      return;
+    }
+
+    res.status(200).json({
+      status: true,
+      msg: `✅ Wire internacional ${enabled ? "liberado" : "bloqueado"}.`,
+      seller,
+    });
+  } catch (error) {
+    console.error("❌ Erro em toggleWireEnabled:", error);
+    res.status(500).json({ status: false, msg: "Erro interno ao atualizar wire internacional." });
+  }
+};
+
+const ACQUIRER_CAPABILITIES: AcquirerCapability[] = ["pix", "card", "swap"];
+
+/**
+ * 🏦 Adquirente POR MÉTODO (Pix/cartão/swap) — substitui o antigo
+ * updateSellerAcquirer (campo único, 2026-08-30). Devolve o valor JÁ
+ * RESOLVIDO de cada capability (aplica o fallback pro `acquirer` antigo via
+ * resolveSellerAcquirer), pra tela mostrar o comportamento REAL de hoje
+ * mesmo pra um seller nunca editado nessa tela nova. Apenas master.
+ */
+export const getSellerAcquirerConfig = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const user = await getUserFromToken(req.headers.authorization);
+    if (!user || user.role !== "master") {
+      res.status(403).json({ status: false, msg: "Acesso negado." });
+      return;
+    }
+
+    const { id } = req.params;
+    if (!Types.ObjectId.isValid(id)) {
+      res.status(400).json({ status: false, msg: "ID de seller inválido." });
+      return;
+    }
+
+    const seller = await Seller.findById(id).lean();
+    if (!seller) {
+      res.status(404).json({ status: false, msg: "Seller não encontrado." });
+      return;
+    }
+
+    // resolveSellerAcquirer lança se a capability estiver explicitamente
+    // desligada (`null`) — aqui só queremos MOSTRAR o estado, não usar de
+    // verdade, então "nenhuma" vira `null` na resposta em vez de erro.
+    const resolved: Record<AcquirerCapability, string | null> = { pix: null, card: null, swap: null };
+    for (const capability of ACQUIRER_CAPABILITIES) {
+      try {
+        resolved[capability] = resolveSellerAcquirer(seller, capability);
+      } catch {
+        resolved[capability] = null; // método desligado de propósito
+      }
+    }
+
+    res.status(200).json({
+      status: true,
+      acquirerConfig: seller.acquirerConfig || {},
+      resolved,
+    });
+  } catch (error) {
+    console.error("❌ Erro em getSellerAcquirerConfig:", error);
+    res.status(500).json({ status: false, msg: "Erro interno ao buscar adquirente do seller." });
+  }
+};
+
+export const updateSellerAcquirerConfig = async (req: Request, res: Response): Promise<void> => {
   try {
     const user = await getUserFromToken(req.headers.authorization);
     if (!user || user.role !== "master") {
@@ -404,30 +498,42 @@ export const updateSellerAcquirer = async (req: Request, res: Response): Promise
     }
 
     const { id } = req.params;
-    const { acquirer } = req.body;
-
     if (!Types.ObjectId.isValid(id)) {
       res.status(400).json({ status: false, msg: "ID de seller inválido." });
       return;
     }
 
-    if (!ACQUIRER_KEYS.includes(acquirer)) {
-      res.status(400).json({
-        status: false,
-        msg: `Adquirente inválida. Use uma de: ${ACQUIRER_KEYS.join(", ")}.`,
-      });
+    // Atualização PARCIAL — só mexe nas capabilities que vierem no corpo.
+    // Cada valor: uma chave de ACQUIRER_KEYS, `null` (desliga de propósito),
+    // ou ausente (não mexe nessa capability).
+    const update: Record<string, string | null> = {};
+    for (const capability of ACQUIRER_CAPABILITIES) {
+      if (!(capability in req.body)) continue;
+      const value = req.body[capability];
+      if (value !== null && !ACQUIRER_KEYS.includes(value)) {
+        res.status(400).json({
+          status: false,
+          msg: `Valor inválido pra "${capability}". Use "${ACQUIRER_KEYS.join('", "')}" ou null (nenhuma).`,
+        });
+        return;
+      }
+      update[`acquirerConfig.${capability}`] = value;
+    }
+
+    if (Object.keys(update).length === 0) {
+      res.status(400).json({ status: false, msg: "Nenhuma capability (pix/card/swap) informada." });
       return;
     }
 
-    const seller = await Seller.findByIdAndUpdate(id, { acquirer }, { new: true }).lean();
+    const seller = await Seller.findByIdAndUpdate(id, { $set: update }, { new: true }).lean();
     if (!seller) {
       res.status(404).json({ status: false, msg: "Seller não encontrado." });
       return;
     }
 
-    res.status(200).json({ status: true, msg: `✅ Adquirente definida como '${acquirer}'.`, seller });
+    res.status(200).json({ status: true, msg: "✅ Adquirente por método atualizado.", acquirerConfig: seller.acquirerConfig });
   } catch (error) {
-    console.error("❌ Erro em updateSellerAcquirer:", error);
+    console.error("❌ Erro em updateSellerAcquirerConfig:", error);
     res.status(500).json({ status: false, msg: "Erro interno ao atualizar adquirente." });
   }
 };

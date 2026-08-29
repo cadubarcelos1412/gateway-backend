@@ -10,8 +10,24 @@ import { FeeTableSchema } from "./feeTable.schema";
 export type SellerType = "PF" | "PJ";
 export type KycStatus = "pending" | "under_review" | "approved" | "rejected" | "active";
 // Pagar.me e ReflowPay removidos (2026-08-06) — nenhum seller usava, nenhuma
-// das duas era integração real/confirmada. Só Zendry é suportada hoje.
-export type AcquirerType = "zendry";
+// das duas era integração real/confirmada. Sttart adicionada 2026-08-29
+// (contrato assinado 2026-08-18) — ver acquirers/sttart.acquirer.ts.
+export type AcquirerType = "zendry" | "sttart";
+
+/**
+ * 🏦 Adquirente POR MÉTODO (2026-08-30) — antes, `Seller.acquirer` (abaixo)
+ * decidia Pix, cartão e swap USDT ao mesmo tempo, o que não reflete a
+ * realidade: a Sttart não faz cartão, por exemplo. `null` explícito
+ * significa "método desligado de propósito pra esse seller" (não é
+ * "esqueceram de configurar") — ver resolveSellerAcquirer em
+ * acquirers/index.ts, que é o ÚNICO lugar que deve interpretar isso.
+ */
+export type AcquirerSelection = AcquirerType | null;
+export interface IAcquirerConfig {
+  pix?: AcquirerSelection;
+  card?: AcquirerSelection;
+  swap?: AcquirerSelection;
+}
 
 export interface IAddress {
   street: string;
@@ -29,6 +45,12 @@ export interface IDocumentFile {
   uploadedAt: Date;
   mimeType?: string;
   checksum?: string;
+  /** public_id do Cloudinary — necessário pra gerar URL assinada nova a cada
+   * consulta (ver kyc.controller.ts) depois do upload passar a usar
+   * type:"authenticated". `url` fica só como snapshot histórico/checksum;
+   * a URL de verdade servida ao cliente é sempre recalculada na hora. */
+  publicId?: string;
+  resourceType?: string;
 }
 
 // Chave = docType (ex.: "cnh_frente", "comprovante_endereco" — ver REQUIRED_DOCS em
@@ -69,7 +91,13 @@ export interface ISeller extends Document {
   documentNumber: string;
   address: IAddress;
 
-  acquirer: AcquirerType; // 🏦 adquirente usada por esse seller
+  /** @deprecated fallback legado — usado quando `acquirerConfig` não tem a
+   * capability configurada ainda (seller nunca editado na tela nova). Não
+   * ler direto em código novo, usar resolveSellerAcquirer. */
+  acquirer: AcquirerType;
+  /** Adquirente por método (Pix/cartão/swap) — ver resolveSellerAcquirer em
+   * acquirers/index.ts. Fonte de verdade a partir de 2026-08-30. */
+  acquirerConfig?: IAcquirerConfig;
 
   kycStatus: KycStatus;
   kycDocuments: IKycDocuments;
@@ -83,6 +111,18 @@ export interface ISeller extends Document {
   /** Saque PIX automático (sem aprovação manual do master) — desligado por padrão pra
    * seller novo. Ligado só por decisão explícita do master, ver SellerDetailPage. */
   autoWithdrawEnabled: boolean;
+
+  /** Libera o pedido de wire internacional (SWIFT via Sttart, fluxo 100% manual — ver
+   * wireCashout.service.ts). Desligado por padrão — operação sensível (câmbio, compliance),
+   * liberada seller a seller pelo master, mesmo padrão de autoWithdrawEnabled. */
+  wireEnabled: boolean;
+  /** Tetos opcionais em BRL pra wire — nenhum configurável por UI ainda (sem tela pra isso),
+   * só a estrutura pronta pra quando for preciso usar. Ausente/undefined = sem limite. */
+  wireLimits?: {
+    perTransaction?: number;
+    daily?: number;
+    monthly?: number;
+  };
 
   createdAt: Date;
   updatedAt: Date;
@@ -98,6 +138,8 @@ const DocumentFileSchema = new Schema<IDocumentFile>(
     uploadedAt: { type: Date, required: true, default: () => new Date() },
     mimeType: { type: String, trim: true },
     checksum: { type: String, trim: true },
+    publicId: { type: String, trim: true },
+    resourceType: { type: String, trim: true },
   },
   { _id: false }
 );
@@ -163,10 +205,20 @@ const SellerSchema = new Schema<ISeller>(
     // 🏦 Multiadquirência – cada seller pode ter sua adquirente configurada
     acquirer: {
       type: String,
-      enum: ["zendry"],
+      enum: ["zendry", "sttart"],
       default: "zendry",
       required: true,
       index: true,
+    },
+
+    // 🏦 Adquirente por método — cada campo é independente (enum aplicado
+    // individualmente, não ao objeto inteiro). `null` = método desligado de
+    // propósito; ausente = ainda cai no fallback `acquirer` acima (ver
+    // resolveSellerAcquirer em acquirers/index.ts).
+    acquirerConfig: {
+      pix: { type: String, enum: ["zendry", "sttart", null], default: undefined },
+      card: { type: String, enum: ["zendry", "sttart", null], default: undefined },
+      swap: { type: String, enum: ["zendry", "sttart", null], default: undefined },
     },
 
     kycStatus: {
@@ -205,6 +257,12 @@ const SellerSchema = new Schema<ISeller>(
     },
 
     autoWithdrawEnabled: { type: Boolean, default: false },
+    wireEnabled: { type: Boolean, default: false },
+    wireLimits: {
+      perTransaction: { type: Number },
+      daily: { type: Number },
+      monthly: { type: Number },
+    },
   },
   {
     timestamps: true,
@@ -213,7 +271,9 @@ const SellerSchema = new Schema<ISeller>(
       virtuals: true,
       transform: (_doc, ret) => {
         ret.id = ret._id?.toString();
-        delete ret._id;
+        // `as any` — mesma correção de apiKey.model.ts (atualização do
+        // mongoose via npm audit fix, 2026-08-30).
+        delete (ret as any)._id;
         return ret;
       },
     },

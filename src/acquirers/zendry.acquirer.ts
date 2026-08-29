@@ -1,10 +1,28 @@
 import { IAcquirer } from "./IAcquirer";
-import { CreateTransactionDTO, CreateTransactionResult } from "./types";
+import {
+  CreateTransactionDTO,
+  CreateTransactionResult,
+  SendPayoutInput,
+  SendPayoutResult,
+  PayoutStatusResult,
+  SwapInput,
+  SwapResult,
+} from "./types";
 import { createPix } from "../lib/zendry/pix";
 import { createCardPayment } from "../lib/zendry/card";
 import { computeCardTotal, MAX_CARD_INSTALLMENTS } from "../lib/zendry/status-mapper";
 import type { ZendryThreedsData } from "../lib/zendry/types";
+import { sendPixPayment, getPixPaymentStatus, ZendryPixKeyType } from "../lib/zendry/pixPayout";
+import { getUsdtQuote, sendUsdtPayment } from "../lib/zendry/crypto";
 import crypto from "crypto";
+
+const ZENDRY_PIX_KEY_TYPE_MAP: Record<string, ZendryPixKeyType> = {
+  cpf: "cpf",
+  cnpj: "cnpj",
+  email: "email",
+  phone: "phone",
+  random: "token",
+};
 
 // Campos que a Zendry exige dentro de threeds_data (ver ZENDRY-MIGRATION.md,
 // seção "Cartão — 3DS"). Validados aqui porque o DTO compartilhado
@@ -142,6 +160,58 @@ export class ZendryAcquirer implements IAcquirer {
         cardAuthorizationCode: result.authorizationCode,
         cardChargedAmount,
       },
+    };
+  }
+
+  /**
+   * Wrapper fino em cima de lib/zendry/pixPayout.ts — mesma chamada que
+   * cashout.service.ts fazia direto antes desse método existir aqui. Zero
+   * mudança de comportamento pros sellers já em Zendry.
+   */
+  async sendPayout(input: SendPayoutInput): Promise<SendPayoutResult> {
+    const result = await sendPixPayment({
+      idempotentId: input.idempotentId,
+      pixKeyType: ZENDRY_PIX_KEY_TYPE_MAP[input.pixKeyType],
+      pixKey: input.pixKey,
+      receiverName: input.receiverName,
+      receiverDocument: input.receiverDocument,
+      valueCents: input.valueCents,
+    });
+    return { externalReference: result.referenceCode, status: result.status };
+  }
+
+  async getPayoutStatus(externalReference: string): Promise<PayoutStatusResult> {
+    const result = await getPixPaymentStatus(externalReference);
+    return { externalReference: result.referenceCode, status: result.status };
+  }
+
+  /**
+   * Wrapper em cima de lib/zendry/crypto.ts — modelo de wallet-tesouro
+   * PRÉ-FINANCIADA (funded manualmente fora do app, ver comentário em
+   * ZENDRY_TREASURY_WALLET_ID). Diferente do modelo da Sttart (compra de
+   * verdade a cada saque) — ver SttartAcquirer.swapToStablecoin.
+   */
+  async swapToStablecoin(input: SwapInput): Promise<SwapResult> {
+    const treasuryWalletId = process.env.ZENDRY_TREASURY_WALLET_ID;
+    if (!treasuryWalletId) {
+      throw new Error("Saque em USDT indisponível no momento (wallet-tesouro não configurada).");
+    }
+
+    const { brlPrice } = await getUsdtQuote();
+    if (!brlPrice || brlPrice <= 0) throw new Error("Cotação USDT indisponível no momento.");
+    const usdtAmount = Math.round((input.netAmountBRL / brlPrice) * 100) / 100;
+
+    const result = await sendUsdtPayment({
+      senderWalletId: treasuryWalletId,
+      receiverAddress: input.destinationAddress,
+      valueUsdt: usdtAmount,
+    });
+
+    return {
+      externalReference: result.referenceCode,
+      status: result.status,
+      usdtAmount,
+      quotedBrlPrice: brlPrice,
     };
   }
 }

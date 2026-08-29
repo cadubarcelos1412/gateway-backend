@@ -7,7 +7,9 @@ import {
   verifySellerKYC,
   toggleSellerStatus,
   toggleAutoWithdraw,
-  updateSellerAcquirer,
+  toggleWireEnabled,
+  getSellerAcquirerConfig,
+  updateSellerAcquirerConfig,
   getSellerFees,
   updateSellerFees,
   listMySplitRules,
@@ -112,11 +114,27 @@ router.patch("/:id/toggle-status", toggleSellerStatus);
 router.patch("/:id/toggle-auto-withdraw", toggleAutoWithdraw);
 
 /**
- * @route   PATCH /api/sellers/:id/acquirer
- * @desc    Definir qual adquirente (zendry/...) processa as transações do seller – Apenas master
+ * @route   PATCH /api/sellers/:id/wire-enabled
+ * @desc    Libera/bloqueia pedido de wire internacional (SWIFT via Sttart) – Apenas master
  * @access  Master
  */
-router.patch("/:id/acquirer", updateSellerAcquirer);
+router.patch("/:id/wire-enabled", toggleWireEnabled);
+
+/**
+ * @route   GET /api/sellers/:id/acquirer-config
+ * @desc    Adquirente por método (Pix/cartão/swap) — valor já resolvido
+ *          (aplica fallback pro campo antigo) – Apenas master
+ * @access  Master
+ */
+router.get("/:id/acquirer-config", getSellerAcquirerConfig);
+
+/**
+ * @route   PATCH /api/sellers/:id/acquirer-config
+ * @desc    Define a adquirente por método (Pix/cartão/swap), atualização
+ *          parcial — substitui o antigo /:id/acquirer (campo único) – Apenas master
+ * @access  Master
+ */
+router.patch("/:id/acquirer-config", updateSellerAcquirerConfig);
 
 /**
  * @route   GET/PATCH /api/sellers/:id/fees

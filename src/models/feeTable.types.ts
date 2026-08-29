@@ -11,6 +11,11 @@ export interface IFeeTable {
   pixOut: { percentage: number; fixed: number };
   /** Taxa do saque em USDT via Zendry — aplicada sobre o valor BASE em BRL, antes da conversão. */
   usdtOut: { percentage: number; fixed: number };
+  /** Taxa do wire internacional via Sttart — aplicada sobre o valor BASE em BRL (custo real da
+   * compra da moeda estrangeira), NÃO sobre o valor em moeda estrangeira. Não varia com câmbio —
+   * ver wireCashout.service.ts. Valor inicial é placeholder, confirmar com o produto antes do
+   * primeiro wire real (mesma disciplina de toda taxa nova nesse projeto). */
+  wireOut: { percentage: number; fixed: number };
   settlementDays: number;
   cardFees: Record<CardBrand, CardInstallmentFees>;
   anticipation: {
@@ -32,6 +37,7 @@ export const DEFAULT_FEE_TABLE: IFeeTable = {
   pixIn: { percentage: 2.89 },
   pixOut: { percentage: 1.99, fixed: 0 },
   usdtOut: { percentage: 2.5, fixed: 0 },
+  wireOut: { percentage: 2.5, fixed: 0 },
   settlementDays: 30,
   cardFees: {
     amex: { ...CARD_FEES },

@@ -6,6 +6,7 @@ import {
   webhookTransaction,
 } from "../controllers/transaction.controller";
 import { zendryWebhook } from "../controllers/zendryWebhook.controller";
+import { sttartWebhook } from "../controllers/sttartWebhook.controller";
 import { requireApprovedKyc } from "../middleware/kycGuard";
 import { transactionLogger } from "../middleware/transactionLogger";
 
@@ -123,6 +124,19 @@ router.post(
 router.post(
   "/webhook/zendry",
   (req: Request, res: Response): Promise<void> => zendryWebhook(req, res)
+);
+
+/* -------------------------------------------------------------------------- */
+/* 📡 Webhook – Sttart (Pix cash-in)                                          */
+/* -------------------------------------------------------------------------- */
+/**
+ * - Atualiza status da transação com base no externalId (txid)
+ * - Exige assinatura HMAC-SHA256 (STTART_WEBHOOK_SECRET) — ver
+ *   sttartWebhook.controller.ts
+ */
+router.post(
+  "/webhook/sttart",
+  (req: Request, res: Response): Promise<void> => sttartWebhook(req, res)
 );
 
 export default router;
