@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
     "build": "tsc",
+    "test": "tsc && node --test dist/acquirers/*.test.js",
     "start": "node dist/server.js",
     "seed:dev": "ts-node-dev --transpile-only src/seed/dev.seed.ts"
   },
@@ -22,7 +23,6 @@
     "typescript"
   ],
   "dependencies": {
-    "bcrypt": "^5.1.1",
     "bcryptjs": "^3.0.2",
     "cloudinary": "^2.7.0",
     "cors": "^2.8.5",
@@ -40,7 +40,6 @@
     "zod": "^4.1.12"
   },
   "devDependencies": {
-    "@types/bcrypt": "^5.0.2",
     "@types/bcryptjs": "^2.4.6",
     "@types/cors": "^2.8.17",
     "@types/express": "^5.0.0",

@@ -10,6 +10,7 @@ import {
 } from "../controllers/checkout.controller";
 import { renderCheckoutPreview } from "../controllers/checkout.preview";
 import { payCheckout } from "../controllers/checkout.pay.controller";
+import { sensitiveActionRateLimit } from "../middleware/authRateLimit";
 
 const router = Router();
 
@@ -59,7 +60,10 @@ router.get("/preview", renderCheckoutPreview);
  * 💳 Realizar pagamento de um checkout
  * @route POST /api/checkout/pay
  */
-router.post("/pay", payCheckout);
+// 🔒 sensitiveActionRateLimit (achado de auditoria de segurança 2026-08-30)
+// — endpoint público, sem token, que move dinheiro (cartão/Pix); não tinha
+// limite nenhum antes.
+router.post("/pay", sensitiveActionRateLimit, payCheckout);
 
 /**
  * 🔐 Token da Zendry pro SDK de 3DS (público — roda no navegador do comprador,

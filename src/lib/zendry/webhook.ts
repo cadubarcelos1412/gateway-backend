@@ -29,7 +29,14 @@ import { mapZendryStatus } from "./status-mapper";
 // ============================================================================
 
 export function verifyWebhookSecret(providedKey: string | null, expectedSecret: string): boolean {
-  return !!providedKey && providedKey === expectedSecret;
+  // 🔒 timingSafeEqual em vez de `===` (achado de auditoria de segurança
+  // 2026-08-30) — defesa em profundidade contra timing attack, mesmo esse
+  // mecanismo legado sendo pouco provável de estar em uso real hoje.
+  if (!providedKey || !expectedSecret) return false;
+  const bufA = Buffer.from(providedKey);
+  const bufB = Buffer.from(expectedSecret);
+  if (bufA.length !== bufB.length) return false;
+  return crypto.timingSafeEqual(bufA, bufB);
 }
 
 export function verifyWebhookHeader(authorizationHeader: string | null, expectedValue: string): boolean {

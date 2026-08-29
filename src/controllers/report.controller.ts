@@ -180,8 +180,17 @@ export const getEnterpriseReport = async (req: Request, res: Response): Promise<
 /* -------------------------------------------------------
 💰 2. Visão Financeira – Saldo atual, retenções, projeções
 -------------------------------------------------------- */
-export const getFinancialOverview = async (_req: Request, res: Response): Promise<void> => {
+export const getFinancialOverview = async (req: Request, res: Response): Promise<void> => {
   try {
+    // 🔒 Achado em auditoria de segurança (2026-08-30): sem autenticação
+    // nenhuma — qualquer visitante via saldo agregado de toda a plataforma.
+    const token = req.headers.authorization?.replace("Bearer ", "") ?? "";
+    const payload = await decodeToken(token);
+    if (!payload || !["admin", "master"].includes(payload.role)) {
+      res.status(403).json({ status: false, msg: "Acesso negado." });
+      return;
+    }
+
     const totalWallets = await Wallet.aggregate([
       {
         $group: {
@@ -211,8 +220,18 @@ export const getFinancialOverview = async (_req: Request, res: Response): Promis
 /* -------------------------------------------------------
 🏦 3. Histórico de Pagamentos – Saques e liberações
 -------------------------------------------------------- */
-export const getPayoutsHistory = async (_req: Request, res: Response): Promise<void> => {
+export const getPayoutsHistory = async (req: Request, res: Response): Promise<void> => {
   try {
+    // 🔒 Achado em auditoria de segurança (2026-08-30): sem autenticação
+    // nenhuma — vazava nome/e-mail/valor/IP de saques recentes pra qualquer
+    // visitante.
+    const token = req.headers.authorization?.replace("Bearer ", "") ?? "";
+    const payload = await decodeToken(token);
+    if (!payload || !["admin", "master"].includes(payload.role)) {
+      res.status(403).json({ status: false, msg: "Acesso negado." });
+      return;
+    }
+
     const payouts = await Wallet.aggregate([
       { $unwind: "$log" },
       { $sort: { "log.security.createdAt": -1 } },

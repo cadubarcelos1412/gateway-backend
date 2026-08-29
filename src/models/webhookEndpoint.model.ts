@@ -35,7 +35,9 @@ const WebhookEndpointSchema = new Schema<IWebhookEndpoint>(
     toJSON: {
       transform: (_doc, ret) => {
         ret.id = ret._id?.toString();
-        delete ret._id;
+        // `as any` — mesma correção de apiKey.model.ts (atualização do
+        // mongoose via npm audit fix, 2026-08-30).
+        delete (ret as any)._id;
         return ret;
       },
     },

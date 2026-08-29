@@ -49,6 +49,15 @@ const LedgerEntrySchema = new Schema<LedgerEntry>({
 LedgerEntrySchema.index({ sellerId: 1, account: 1, createdAt: 1 });
 LedgerEntrySchema.index({ transactionId: 1 });
 LedgerEntrySchema.index({ batchId: 1, sequence: 1 }, { unique: true });
-LedgerEntrySchema.index({ idempotencyKey: 1 });
+// 🔒 Achado em auditoria de segurança (2026-08-30): o findOne(idempotencyKey)
+// em ledger.service.ts, sozinho, só protege contra retry SEQUENCIAL (ex.:
+// webhook reenviado depois que o primeiro já commitou) — duas chamadas
+// verdadeiramente CONCORRENTES (ex.: duplo-clique em "aprovar saque", ou uma
+// condição de corrida em createCashout) podem ambas passar o findOne antes
+// de qualquer uma commitar, e ambas inserir. `batchId` não ajuda aqui (é
+// gerado novo a cada chamada). Este índice único em (idempotencyKey,
+// sequence) faz a SEGUNDA inserção concorrente colidir de verdade no banco
+// (E11000), abortando a transação duplicada em vez de duplicar o lançamento.
+LedgerEntrySchema.index({ idempotencyKey: 1, sequence: 1 }, { unique: true });
 
 export default mongoose.model<LedgerEntry>('LedgerEntry', LedgerEntrySchema);

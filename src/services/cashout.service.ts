@@ -5,8 +5,8 @@ import { Seller } from "../models/seller.model";
 import { TransactionAuditService } from "./transactionAudit.service";
 import { postLedgerEntries } from "./ledger/ledger.service";
 import { round2 } from "./ledger/helpers";
-import { getUsdtQuote, sendUsdtPayment } from "../lib/zendry/crypto";
-import { sendPixPayment, ZendryPixKeyType } from "../lib/zendry/pixPayout";
+import { resolveAcquirer, resolveSellerAcquirer, AcquirerKey } from "../acquirers";
+import { PixKeyType } from "../acquirers/types";
 import { DEFAULT_FEE_TABLE } from "../models/feeTable.types";
 import { releaseMaturedBalance } from "./wallet.service";
 import { ICashoutRequest } from "../models/cashoutRequest.model";
@@ -26,7 +26,17 @@ export class CashoutService {
     session?: ClientSession,
     pixKeyInfo?: { type: "cpf" | "cnpj" | "email" | "phone" | "random"; key: string; holderName?: string; holderDocument?: string }
   ) {
-    const wallet = await Wallet.findOne({ userId });
+    // 🔒 Achado CRÍTICO em auditoria de segurança (2026-08-30): esta leitura
+    // rodava SEM `.session(session)` mesmo quando o chamador já tinha aberto
+    // uma transação — o snapshot de isolamento do Mongo só vale pra leituras
+    // feitas DENTRO da sessão. Sem isso, duas requisições de saque
+    // concorrentes liam o mesmo saldo "disponível" antes de qualquer uma
+    // escrever, as duas passavam na checagem de saldo, e as duas debitavam a
+    // partir do mesmo valor — permitindo sacar mais do que o saldo real
+    // (com saque automático ligado, o Pix saía de verdade em dobro). Agora,
+    // dentro de uma transação real, a segunda escrita concorrente falha com
+    // WriteConflict do próprio MongoDB em vez de silenciosamente duplicar.
+    const wallet = await Wallet.findOne({ userId }).session(session ?? null);
     if (!wallet) throw new Error("Carteira não encontrada.");
 
     // Libera reservas já maduras antes de checar saldo — sem isso, dinheiro
@@ -114,11 +124,14 @@ export class CashoutService {
     adminId: Types.ObjectId,
     session: ClientSession
   ) {
-    const cashout = await CashoutRequest.findById(cashoutId);
+    // 🔒 Mesma correção de createCashout — leitura dentro da transação, pra
+    // que duas aprovações concorrentes do mesmo saque não passem ambas pela
+    // checagem "ainda pendente?" antes de qualquer uma escrever.
+    const cashout = await CashoutRequest.findById(cashoutId).session(session);
     if (!cashout) throw new Error("Solicitação não encontrada.");
     if (cashout.status !== "pending") throw new Error("Solicitação já processada.");
 
-    const wallet = await Wallet.findOne({ userId: cashout.userId });
+    const wallet = await Wallet.findOne({ userId: cashout.userId }).session(session);
     if (!wallet) throw new Error("Carteira não encontrada.");
 
     const amount = round2(cashout.amount);
@@ -206,37 +219,62 @@ export class CashoutService {
       return;
     }
 
-    const zendryKeyTypeMap: Record<string, ZendryPixKeyType> = {
-      cpf: "cpf",
-      cnpj: "cnpj",
-      email: "email",
-      phone: "phone",
-      random: "token",
-    };
+    // Roteamento por seller (ver Seller.acquirer / AcquirersPage.tsx) —
+    // snapshot gravado ANTES do envio: se o master trocar a adquirente do
+    // seller depois, a reconciliação DESTE saque específico continua
+    // sabendo qual API consultar (ver pixPayoutReconciliation.service.ts).
+    const seller = await Seller.findOne({ userId: cashout.userId });
+
+    // 🏦 Adquirente por método (2026-08-30) — se o master desligou Pix pra
+    // esse seller DEPOIS do pedido ser aprovado (janela rara, mas possível),
+    // resolveSellerAcquirer lança em vez de mandar pra uma adquirente
+    // errada — tratado igual a qualquer outra falha de envio: devolve o
+    // saldo, nunca falha em silêncio.
+    let acquirerKey: AcquirerKey;
+    try {
+      acquirerKey = seller ? (resolveSellerAcquirer(seller, "pix") as AcquirerKey) : "zendry";
+    } catch (err) {
+      cashout.providerStatus = `FALHOU: ${(err as Error).message}`;
+      await cashout.save();
+      console.error(`❌ CRÍTICO: saque ${(cashout._id as Types.ObjectId).toString()} aprovado, mas Pix está desligado pra esse seller agora.`);
+      await CashoutService.refundFailedPixPayout(cashout._id as Types.ObjectId, cashout.providerStatus);
+      return;
+    }
+
+    cashout.acquirer = acquirerKey;
+    const acquirer = resolveAcquirer(acquirerKey);
+
+    if (!acquirer.sendPayout) {
+      cashout.providerStatus = `FALHOU: adquirente "${acquirerKey}" não implementa envio de saque Pix.`;
+      await cashout.save();
+      console.error(`❌ CRÍTICO: saque ${(cashout._id as Types.ObjectId).toString()} aprovado, mas a adquirente "${acquirerKey}" não tem sendPayout implementado.`);
+      await CashoutService.refundFailedPixPayout(cashout._id as Types.ObjectId, cashout.providerStatus);
+      return;
+    }
 
     try {
-      const result = await sendPixPayment({
+      const result = await acquirer.sendPayout({
         idempotentId: (cashout._id as Types.ObjectId).toString(),
-        pixKeyType: zendryKeyTypeMap[cashout.pixKeyType],
+        pixKeyType: cashout.pixKeyType as PixKeyType,
         pixKey: cashout.pixKey,
         receiverName: cashout.pixKeyHolderName,
         receiverDocument: cashout.pixKeyHolderDocument,
         // Manda o valor LÍQUIDO (depois da taxa de Pix out) — mandar o valor
         // cheio aqui era exatamente o motivo do saldo interno ficar maior
-        // que o saldo real na Zendry (nenhuma margem capturada no saque).
+        // que o saldo real na adquirente (nenhuma margem capturada no saque).
         valueCents: Math.round((cashout.netAmount ?? cashout.amount) * 100),
       });
-      cashout.externalReference = result.referenceCode;
+      cashout.externalReference = result.externalReference;
       cashout.providerStatus = result.status;
       await cashout.save();
     } catch (err) {
       // Visível pra quem for olhar o saque no painel master, não só no log
       // do servidor — truncado porque o erro cru pode conter detalhe da
-      // resposta da Zendry que não deveria virar texto solto na tela.
+      // resposta da adquirente que não deveria virar texto solto na tela.
       cashout.providerStatus = `FALHOU: ${(err as Error).message?.slice(0, 200) || "erro desconhecido"}`;
       await cashout.save();
       console.error(
-        `❌ CRÍTICO: saque ${(cashout._id as Types.ObjectId).toString()} aprovado (saldo já debitado) mas o envio real do PIX pela Zendry falhou — precisa reconciliação manual:`,
+        `❌ CRÍTICO: saque ${(cashout._id as Types.ObjectId).toString()} aprovado (saldo já debitado) mas o envio real do PIX pela ${acquirerKey} falhou — precisa reconciliação manual:`,
         err
       );
       await CashoutService.refundFailedPixPayout(cashout._id as Types.ObjectId, cashout.providerStatus);
@@ -302,14 +340,14 @@ export class CashoutService {
             idempotencyKey: `cashout_refund:${cashoutId.toString()}`,
             transactionId: cashoutId.toString(),
             sellerId: cashout.refundToUserId.toString(),
-            source: { system: "cashout", acquirer: "zendry" },
+            source: { system: "cashout", acquirer: cashout.acquirer || "zendry" },
             eventAt: new Date(),
           },
           session
         );
 
         cashout.status = "rejected";
-        cashout.rejectionReason = `Saque não completado pela Zendry (${reason}) — valor redirecionado por decisão administrativa, não devolvido ao seller original.`;
+        cashout.rejectionReason = `Saque não completado pela adquirente (${reason}) — valor redirecionado por decisão administrativa, não devolvido ao seller original.`;
         await cashout.save({ session });
 
         await session.commitTransaction();
@@ -323,7 +361,7 @@ export class CashoutService {
           status: "approved",
           kycStatus: "verified",
           flags: [],
-          description: `Saque de ${cashout.userId.toString()} não completado pela Zendry — valor redirecionado por decisão administrativa (${reason}).`,
+          description: `Saque de ${cashout.userId.toString()} não completado pela adquirente — valor redirecionado por decisão administrativa (${reason}).`,
         });
         return;
       }
@@ -353,7 +391,7 @@ export class CashoutService {
           idempotencyKey: `cashout_refund:${cashoutId.toString()}`,
           transactionId: cashoutId.toString(),
           sellerId: cashout.userId.toString(),
-          source: { system: "cashout", acquirer: "zendry" },
+          source: { system: "cashout", acquirer: cashout.acquirer || "zendry" },
           eventAt: new Date(),
         },
         session
@@ -374,7 +412,7 @@ export class CashoutService {
         status: "failed",
         kycStatus: "verified",
         flags: ["FAILED_ATTEMPT"],
-        description: `Saque não completado pela Zendry — saldo devolvido automaticamente (${reason}).`,
+        description: `Saque não completado pela adquirente — saldo devolvido automaticamente (${reason}).`,
       });
     } catch (err) {
       await session.abortTransaction();
@@ -541,11 +579,13 @@ export class CashoutService {
     reason: string,
     session?: ClientSession
   ) {
-    const cashout = await CashoutRequest.findById(cashoutId);
+    // 🔒 Mesma correção de createCashout/approveCashout — leitura dentro da
+    // transação.
+    const cashout = await CashoutRequest.findById(cashoutId).session(session ?? null);
     if (!cashout) throw new Error("Solicitação não encontrada.");
     if (cashout.status !== "pending") throw new Error("Solicitação já processada.");
 
-    const wallet = await Wallet.findOne({ userId: cashout.userId });
+    const wallet = await Wallet.findOne({ userId: cashout.userId }).session(session ?? null);
     if (!wallet) throw new Error("Carteira não encontrada.");
 
     wallet.balance.available += cashout.amount;
@@ -622,24 +662,37 @@ export class CashoutService {
   ) {
     if (!amountBRL || amountBRL <= 0) throw new Error("Valor de saque inválido.");
 
-    const maxAmount = Number(process.env.ZENDRY_MAX_USDT_CASHOUT_BRL || 500);
-    if (amountBRL > maxAmount) {
-      throw new Error(`Valor acima do limite por saque em USDT (R$ ${maxAmount.toFixed(2)}).`);
-    }
-
     if (!destinationAddress || destinationAddress.trim().length < 10) {
       throw new Error("Endereço de destino inválido.");
-    }
-
-    const treasuryWalletId = process.env.ZENDRY_TREASURY_WALLET_ID;
-    if (!treasuryWalletId) {
-      throw new Error("Saque em USDT indisponível no momento (wallet-tesouro não configurada).");
     }
 
     const seller = await Seller.findOne({ userId });
     if (!seller) throw new Error("Seller não encontrado.");
     if (seller.kycStatus !== "approved" && seller.kycStatus !== "active") {
       throw new Error("Saque em USDT exige verificação de identidade aprovada.");
+    }
+
+    // Roteamento por seller — ver comentário equivalente em
+    // sendApprovedPixPayout. Zendry usa wallet-tesouro pré-financiada,
+    // Sttart cota+compra USDT de verdade a cada saque (ver
+    // acquirers/sttart.acquirer.ts) — a diferença de modelo fica encapsulada
+    // dentro de cada adapter, aqui só chamamos swapToStablecoin.
+    // 🏦 Adquirente por método (2026-08-30) — capability "swap", separada
+    // de Pix. resolveSellerAcquirer já lança um erro claro se o master
+    // desligou USDT de propósito pra esse seller.
+    const acquirerKey = resolveSellerAcquirer(seller, "swap") as AcquirerKey;
+    const acquirer = resolveAcquirer(acquirerKey);
+    if (!acquirer.swapToStablecoin) {
+      throw new Error(`Saque em USDT indisponível — adquirente "${acquirerKey}" não implementa swap.`);
+    }
+
+    // Teto por saque — variável de ambiente própria por adquirente (cada
+    // uma tem seu próprio risco/liquidez: Zendry usa wallet-tesouro
+    // pré-financiada, Sttart compra USDT de verdade a cada saque).
+    const maxAmountEnvVar = acquirerKey === "sttart" ? "STTART_MAX_USDT_CASHOUT_BRL" : "ZENDRY_MAX_USDT_CASHOUT_BRL";
+    const maxAmount = Number(process.env[maxAmountEnvVar] || 500);
+    if (amountBRL > maxAmount) {
+      throw new Error(`Valor acima do limite por saque em USDT (R$ ${maxAmount.toFixed(2)}).`);
     }
 
     const wallet = await Wallet.findOne({ userId });
@@ -652,19 +705,14 @@ export class CashoutService {
     const netAmountBRL = round2(amountBRL - fee);
     if (netAmountBRL <= 0) throw new Error("Valor líquido do saque inválido após taxas.");
 
-    const { brlPrice } = await getUsdtQuote();
-    if (!brlPrice || brlPrice <= 0) throw new Error("Cotação USDT indisponível no momento.");
-    const usdtAmount = Math.round((netAmountBRL / brlPrice) * 100) / 100;
-
     // 1️⃣ Registro ANTES do envio — sem sessão, commit imediato.
     const cashout = await CashoutRequest.create({
       userId,
       amount: amountBRL,
       status: "pending",
       rail: "usdt",
+      acquirer: acquirerKey,
       destinationAddress,
-      quotedBrlPrice: brlPrice,
-      usdtAmount,
       fee,
       netAmount: netAmountBRL,
     });
@@ -672,26 +720,28 @@ export class CashoutService {
     // 2️⃣ Envio real — irreversível a partir daqui se der certo.
     let result;
     try {
-      result = await sendUsdtPayment({
-        senderWalletId: treasuryWalletId,
-        receiverAddress: destinationAddress,
-        valueUsdt: usdtAmount,
+      result = await acquirer.swapToStablecoin({
+        idempotentId: (cashout._id as Types.ObjectId).toString(),
+        netAmountBRL,
+        destinationAddress,
       });
     } catch (err) {
-      // Nunca propaga a resposta bruta da Zendry pra cima (mesma disciplina
-      // do ZendryAcquirer) — detalhe completo só no log do servidor.
-      console.error("❌ Zendry (saque USDT) falhou:", err);
+      // Nunca propaga a resposta bruta da adquirente pra cima (mesma
+      // disciplina dos adapters) — detalhe completo só no log do servidor.
+      console.error(`❌ ${acquirerKey} (saque USDT) falhou:`, err);
       cashout.status = "rejected";
       cashout.rejectionReason = "Erro ao enviar USDT — tente novamente ou contate o suporte.";
       await cashout.save();
       throw new Error("Erro ao enviar USDT — tente novamente ou contate o suporte.");
     }
 
-    // "approved" = enviado à Zendry com sucesso. Não existe confirmação
+    // "approved" = enviado à adquirente com sucesso. Não existe confirmação
     // assíncrona documentada pra virar "completed" — ver comentário da classe.
     cashout.status = "approved";
-    cashout.externalReference = result.referenceCode;
+    cashout.externalReference = result.externalReference;
     cashout.providerStatus = result.status;
+    cashout.quotedBrlPrice = result.quotedBrlPrice;
+    cashout.usdtAmount = result.usdtAmount;
     await cashout.save();
 
     // 3️⃣ Debita wallet + lança ledger — numa transação própria, DEPOIS do
@@ -725,7 +775,7 @@ export class CashoutService {
           idempotencyKey: `crypto_cashout:${(cashout._id as Types.ObjectId).toString()}`,
           transactionId: (cashout._id as Types.ObjectId).toString(),
           sellerId: (seller._id as Types.ObjectId).toString(),
-          source: { system: "cashout", acquirer: "zendry" },
+          source: { system: "cashout", acquirer: acquirerKey },
           eventAt: new Date(),
         },
         session
@@ -738,7 +788,7 @@ export class CashoutService {
       // verdade. Fica registrado pra reconciliação manual (o CashoutRequest
       // já tem status "approved" + externalReference salvos acima).
       console.error(
-        `❌ CRÍTICO: USDT enviado (reference_code: ${result.referenceCode}, cashout: ${(cashout._id as Types.ObjectId).toString()}) mas falhou ao debitar wallet/lançar ledger:`,
+        `❌ CRÍTICO: USDT enviado (reference_code: ${result.externalReference}, cashout: ${(cashout._id as Types.ObjectId).toString()}) mas falhou ao debitar wallet/lançar ledger:`,
         err
       );
     } finally {
@@ -757,9 +807,9 @@ export class CashoutService {
       status: "approved",
       kycStatus: seller.kycStatus,
       flags: [],
-      description: `Saque em USDT enviado via Zendry (reference_code: ${result.referenceCode}).`,
+      description: `Saque em USDT enviado via ${acquirerKey} (reference_code: ${result.externalReference}).`,
     });
 
-    return { cashout, wallet, usdtAmount };
+    return { cashout, wallet, usdtAmount: result.usdtAmount };
   }
 }

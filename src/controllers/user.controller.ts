@@ -174,7 +174,7 @@ POST /api/users/register
 -------------------------------------------------------- */
 export const registerUser = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { name, email, password, document, role } = req.body;
+    const { name, email, password, document } = req.body;
 
     if (!name || !email || !password || !document) {
       res.status(400).json({ status: false, msg: "Nome, email, senha e documento (CPF/CNPJ) são obrigatórios." });
@@ -189,13 +189,19 @@ export const registerUser = async (req: Request, res: Response): Promise<void> =
 
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // 👤 Criar usuário — status "pending" até confirmar o e-mail.
+    // 👤 Criar usuário — status "pending" até confirmar o e-mail. `role`
+    // NUNCA vem do corpo da requisição (auditoria de segurança 2026-08-30):
+    // aceitar `role` do cliente permitia qualquer um se cadastrar como
+    // "master"/"admin" direto, sem aprovação nenhuma — violava a regra 9 do
+    // CLAUDE.md ("usuário nunca escolhe o próprio papel privilegiado").
+    // Cadastro público sempre cria "seller"; admin/master só existem via
+    // createAdminUser (agora restrito a master) ou alteração direta no banco.
     const user = await User.create({
       name,
       email,
       password: hashedPassword,
       document,
-      role: role || "seller",
+      role: "seller",
       status: "pending",
       split: {
         cashIn: {
@@ -379,6 +385,14 @@ export const resetPassword = async (req: Request, res: Response): Promise<void> 
     }
 
     user.password = await bcrypt.hash(newPassword, 10);
+    // 🔒 Achado em auditoria de segurança (2026-08-30): o mecanismo de
+    // revogação de sessão (tokenVersion, ver config/auth.ts) já era
+    // CHECADO no login/decodeToken, mas nunca era INCREMENTADO em lugar
+    // nenhum — trocar a senha não invalidava tokens antigos, que
+    // continuavam válidos até expirar (até 30 dias com "lembrar-me").
+    // Incrementar aqui faz todo token emitido ANTES desse reset falhar na
+    // checagem de tokenVersion em decodeToken.
+    user.tokenVersion = (user.tokenVersion ?? 0) + 1;
     await user.save();
 
     res.status(200).json({ status: true, msg: "✅ Senha redefinida com sucesso." });
@@ -394,6 +408,16 @@ POST /api/users/admin
 -------------------------------------------------------- */
 export const createAdminUser = async (req: Request, res: Response): Promise<void> => {
   try {
+    // 🔒 Achado em auditoria de segurança (2026-08-30): este endpoint não
+    // verificava autenticação NENHUMA — qualquer requisição anônima criava
+    // uma conta admin. Restrito a master.
+    const token = req.headers.authorization?.replace("Bearer ", "") ?? "";
+    const payload = await decodeToken(token);
+    if (!payload || payload.role !== "master") {
+      res.status(403).json({ status: false, msg: "Acesso negado. Apenas master pode criar administradores." });
+      return;
+    }
+
     const { name, email, password } = req.body;
 
     if (!email || !password) {
@@ -511,6 +535,16 @@ GET /api/users/:id/split
 -------------------------------------------------------- */
 export const getSplitFees = async (req: Request, res: Response): Promise<void> => {
   try {
+    // 🔒 Achado em auditoria de segurança (2026-08-30): faltava autenticação
+    // aqui — qualquer um enumerando IDs lia a tabela de taxas de qualquer
+    // usuário. Mesma regra de updateSplitFees (admin ou master).
+    const token = req.headers.authorization?.replace("Bearer ", "") ?? "";
+    const payload = await decodeToken(token);
+    if (!payload || !["admin", "master"].includes(payload.role)) {
+      res.status(403).json({ status: false, msg: "Acesso negado. Apenas admins ou master." });
+      return;
+    }
+
     const { id: userId } = req.params;
 
     if (!mongoose.Types.ObjectId.isValid(userId)) {

@@ -14,6 +14,7 @@ import {
   reconcileZendryPix,
   requireMasterMiddleware,
 } from "../controllers/master.controller";
+import { authRateLimit } from "../middleware/authRateLimit";
 
 const router = Router();
 
@@ -21,7 +22,7 @@ const router = Router();
  * 🔑 POST /api/master/auth
  * Gera token master a partir do SECRET_TOKEN
  */
-router.post("/auth", generateMasterToken);
+router.post("/auth", authRateLimit, generateMasterToken);
 
 /**
  * ✅ POST /api/master/validate

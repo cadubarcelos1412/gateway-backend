@@ -1,5 +1,6 @@
 import { Request, Response } from "express";
 import { cloudinary } from "../config/cloudinary";
+import { signedAuthenticatedUrl } from "../utils/cloudinarySecureUrl";
 import { decodeToken } from "../config/auth";
 import { Seller } from "../models/seller.model";
 import fs from "fs/promises";
@@ -81,16 +82,19 @@ export const uploadKycDocument = async (req: Request, res: Response) => {
       return;
     }
 
-    // ☁️ 7. Upload para Cloudinary
+    // ☁️ 7. Upload para Cloudinary — `type: "authenticated"` (achado de
+    // auditoria de segurança 2026-08-30): sem isso, documento de identidade
+    // virava link público permanente. Ver utils/cloudinarySecureUrl.ts.
     let result;
     try {
       console.log("☁️ Enviando para Cloudinary...");
       result = await cloudinary.uploader.upload(file.path, {
         folder: `kyc/${sellerId}`,
         resource_type: "auto",
+        type: "authenticated",
         public_id: `${docType}-${Date.now()}`,
       });
-      console.log("✅ Upload concluído. URL:", result.secure_url);
+      console.log("✅ Upload concluído. public_id:", result.public_id);
     } catch (err) {
       console.error("❌ Falha ao enviar arquivo para o Cloudinary:", err);
       res.status(500).json({ status: false, msg: "Erro ao enviar o documento para o serviço de armazenamento." });
@@ -106,12 +110,15 @@ export const uploadKycDocument = async (req: Request, res: Response) => {
     }
 
     // 💾 9. Salva referência no MongoDB
+    const signedUrl = signedAuthenticatedUrl(result.public_id, result.resource_type);
     const fieldPath = `kycDocuments.${docType}`;
     seller.set(fieldPath, {
-      url: result.secure_url,
+      url: signedUrl,
       uploadedAt: new Date(),
       mimeType: result.resource_type,
       checksum: result.asset_id,
+      publicId: result.public_id,
+      resourceType: result.resource_type,
     });
 
     await seller.save();
@@ -121,7 +128,7 @@ export const uploadKycDocument = async (req: Request, res: Response) => {
       status: true,
       msg: `📁 Documento '${docType}' enviado e salvo com sucesso!`,
       document: {
-        url: result.secure_url,
+        url: signedUrl,
         type: result.resource_type,
         field: fieldPath,
       },

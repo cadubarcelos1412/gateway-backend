@@ -5,6 +5,7 @@ import { Seller } from "../models/seller.model";
 import { Kyc } from "../models/kyc.model";
 import { KycDocument } from "../models/kycDocument.model";
 import { cloudinary } from "../config/cloudinary";
+import { signedAuthenticatedUrl } from "../utils/cloudinarySecureUrl";
 import crypto from "crypto";
 import fs from "fs/promises";
 
@@ -55,20 +56,28 @@ export const uploadKycDocument = async (req: Request, res: Response): Promise<vo
       return;
     }
 
+    // 🔒 `type: "authenticated"` (achado de auditoria de segurança
+    // 2026-08-30) — sem isso, documento de identidade virava um link
+    // público permanente, acessível por qualquer um que o obtivesse sem
+    // nunca ter feito login na PyxGate. Ver utils/cloudinarySecureUrl.ts.
     const result = await cloudinary.uploader.upload(file.path, {
       folder: `kyc/${sellerId}`,
       resource_type: "auto",
+      type: "authenticated",
       public_id: `${docType}-${Date.now()}`,
     });
 
     await fs.unlink(file.path);
 
-    const checksum = crypto.createHash("sha256").update(result.secure_url).digest("hex");
+    const checksum = crypto.createHash("sha256").update(result.public_id).digest("hex");
+    const signedUrl = signedAuthenticatedUrl(result.public_id, result.resource_type);
 
     await KycDocument.create({
       sellerId,
       docType,
-      url: result.secure_url,
+      url: signedUrl,
+      publicId: result.public_id,
+      resourceType: result.resource_type,
       mimeType: result.resource_type,
       checksum,
       uploadedBy: new Types.ObjectId(payload.id),
@@ -78,10 +87,12 @@ export const uploadKycDocument = async (req: Request, res: Response): Promise<vo
 
     const fieldPath = `kycDocuments.${docType}`;
     seller.set(fieldPath, {
-      url: result.secure_url,
+      url: signedUrl,
       uploadedAt: new Date(),
       mimeType: result.resource_type,
       checksum,
+      publicId: result.public_id,
+      resourceType: result.resource_type,
     });
 
     if (seller.kycStatus === "pending") {
@@ -94,7 +105,7 @@ export const uploadKycDocument = async (req: Request, res: Response): Promise<vo
     res.status(200).json({
       status: true,
       msg: `📁 Documento '${docType}' enviado e salvo com sucesso!`,
-      document: { url: result.secure_url, checksum },
+      document: { url: signedUrl, checksum },
     });
   } catch (error) {
     console.error("💥 Erro uploadKycDocument:", error);
@@ -130,8 +141,14 @@ export const listKycDocuments = async (req: Request, res: Response): Promise<voi
       return;
     }
 
-    const documents = await KycDocument.find({ sellerId }).sort({ uploadedAt: -1 });
-    res.status(200).json({ status: true, kycStatus: seller.kycStatus, documents });
+    const documents = await KycDocument.find({ sellerId }).sort({ uploadedAt: -1 }).lean();
+    // 🔒 Reassina a URL na hora em vez de confiar no `url` gravado — mesmo
+    // motivo do upload usar type:"authenticated" (ver cloudinarySecureUrl.ts).
+    const signedDocuments = documents.map((doc) => ({
+      ...doc,
+      url: doc.publicId ? signedAuthenticatedUrl(doc.publicId, doc.resourceType) : doc.url,
+    }));
+    res.status(200).json({ status: true, kycStatus: seller.kycStatus, documents: signedDocuments });
   } catch (error) {
     console.error("💥 Erro listKycDocuments:", error);
     res.status(500).json({ status: false, msg: "Erro ao buscar documentos." });

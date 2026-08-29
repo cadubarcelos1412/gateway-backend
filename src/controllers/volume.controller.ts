@@ -1,11 +1,22 @@
 import { Request, Response } from "express";
 import { Transaction } from "../models/transaction.model";
+import { decodeToken } from "../config/auth";
 
 /* -------------------------------------------------------
 📆 Volume diário de transações – gráfico de linha
 -------------------------------------------------------- */
 export const getDailyVolume = async (req: Request, res: Response): Promise<void> => {
   try {
+    // 🔒 Achado em auditoria de segurança (2026-08-30): sem autenticação
+    // nenhuma — vazava volume financeiro agregado da plataforma pra
+    // qualquer visitante.
+    const token = req.headers.authorization?.replace("Bearer ", "") ?? "";
+    const payload = await decodeToken(token);
+    if (!payload || !["admin", "master"].includes(payload.role)) {
+      res.status(403).json({ status: false, msg: "Acesso negado." });
+      return;
+    }
+
     const { startDate, endDate, method } = req.query;
 
     const match: any = {};
@@ -45,6 +56,14 @@ export const getDailyVolume = async (req: Request, res: Response): Promise<void>
 -------------------------------------------------------- */
 export const getMonthlyVolume = async (req: Request, res: Response): Promise<void> => {
   try {
+    // 🔒 Mesmo achado de getDailyVolume — sem autenticação nenhuma antes.
+    const token = req.headers.authorization?.replace("Bearer ", "") ?? "";
+    const payload = await decodeToken(token);
+    if (!payload || !["admin", "master"].includes(payload.role)) {
+      res.status(403).json({ status: false, msg: "Acesso negado." });
+      return;
+    }
+
     const { year, method } = req.query;
 
     const match: any = {};

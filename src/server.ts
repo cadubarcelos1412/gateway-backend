@@ -15,6 +15,7 @@ import { reconcilePendingZendryPix } from "./services/zendryReconciliation.servi
 import { releaseAllMaturedWallets } from "./services/wallet.service";
 import { reconcilePixPayoutStatuses } from "./services/pixPayoutReconciliation.service";
 import { revokeMaturedSplitRules } from "./services/splitRule.service";
+import { reconcilePendingSttartPix } from "./services/sttartReconciliation.service";
 
 dotenv.config();
 
@@ -51,13 +52,22 @@ app.use(
   })
 );
 
-// 🔒 Origens permitidas via env var (CSV) — sem ALLOWED_ORIGINS configurada,
-// libera geral (dev). Em produção, defina ALLOWED_ORIGINS com o(s) domínio(s)
-// reais do frontend (ex.: https://app.pyxgate.com).
+// 🔒 Origens permitidas via env var (CSV). Em desenvolvimento, sem
+// ALLOWED_ORIGINS configurada, libera geral (conveniência local). Em
+// PRODUÇÃO, falha FECHADO se a variável não estiver setada — achado de
+// auditoria de segurança (2026-08-30): antes, produção sem essa env var
+// configurada refletia qualquer Origin (`origin: true`), permitindo que
+// qualquer site fizesse requisição autenticada contra a API caso um token
+// vazasse pro navegador errado. Configure ALLOWED_ORIGINS com o(s)
+// domínio(s) reais do frontend (ex.: https://www.pyxgate.com) no Render.
 const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(",").map((o) => o.trim()).filter(Boolean);
+const isProduction = process.env.NODE_ENV === "production";
+if (isProduction && (!allowedOrigins || allowedOrigins.length === 0)) {
+  console.error("❌ ALLOWED_ORIGINS não configurada em produção — CORS vai bloquear todas as origens até isso ser corrigido.");
+}
 app.use(
   cors({
-    origin: allowedOrigins && allowedOrigins.length > 0 ? allowedOrigins : true,
+    origin: allowedOrigins && allowedOrigins.length > 0 ? allowedOrigins : !isProduction,
     methods: ["GET", "POST", "PATCH", "PUT", "DELETE"],
     allowedHeaders: ["Content-Type", "Authorization"],
   })
@@ -155,6 +165,24 @@ connectDB()
     setTimeout(() => {
       runPixPayoutReconciliation();
       setInterval(runPixPayoutReconciliation, TEN_MINUTES);
+    }, 30_000);
+
+    // 🔁 Rede de segurança pro lado Sttart (cash-in) — mesma desconfiança de
+    // webhook que já vale pro resto da integração (ver
+    // sttartReconciliation.service.ts). Reaproveita o intervalo de 10min já
+    // usado pro reconciliador de saques Pix.
+    const runSttartReconciliation = () => {
+      reconcilePendingSttartPix()
+        .then((r) => {
+          if (r.updated > 0 || r.errors.length > 0) {
+            console.log(`🔁 Reconciliação Sttart Pix: ${r.checked} verificadas, ${r.updated} atualizadas, ${r.errors.length} erros.`);
+          }
+        })
+        .catch((err) => console.error("❌ Erro na reconciliação periódica de Pix (Sttart):", err));
+    };
+    setTimeout(() => {
+      runSttartReconciliation();
+      setInterval(runSttartReconciliation, TEN_MINUTES);
     }, 30_000);
 
     // 🤝 Fecha de vez parcerias cuja carência de revogação já passou (ver

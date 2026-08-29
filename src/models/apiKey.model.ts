@@ -46,8 +46,11 @@ const ApiKeySchema = new Schema<IApiKey>(
     toJSON: {
       transform: (_doc, ret) => {
         ret.id = ret._id?.toString();
-        delete ret._id;
-        delete ret.hashedKey;
+        // `as any` — atualização do mongoose (npm audit fix, 2026-08-30)
+        // tornou o tipo de `ret` mais estrito aqui; comportamento em runtime
+        // não muda (delete em propriedade de objeto plain sempre funciona).
+        delete (ret as any)._id;
+        delete (ret as any).hashedKey;
         return ret;
       },
     },
