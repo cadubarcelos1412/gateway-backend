@@ -3,11 +3,11 @@ import { Transaction } from "../models/transaction.model";
 import { User } from "../models/user.model";
 import { Seller } from "../models/seller.model";
 import { createToken, decodeToken } from "../config/auth";
-import { ACQUIRER_KEYS } from "../acquirers";
+import { ACQUIRER_KEYS, resolveSellerAcquirer } from "../acquirers";
 import { getOrCreateDefaultFeeConfig, SystemFeeConfig } from "../models/systemFeeConfig.model";
 import { SplitRule } from "../models/splitRule.model";
 import { reconcilePendingZendryPix } from "../services/zendryReconciliation.service";
-import { brazilDateKey, brazilMonthKey } from "../utils/timezone";
+import { brazilDayBounds, brazilMonthBounds } from "../utils/timezone";
 
 /**
  * 🔑 Utilitário — pegar usuário autenticado pelo token e exigir role master.
@@ -92,58 +92,82 @@ export const validateMasterToken = async (req: Request, res: Response): Promise<
 /**
  * 📊 Retorna métricas gerais da plataforma
  */
+/**
+ * Reescrito em 2026-08-30 — a versão anterior carregava a coleção INTEIRA de
+ * Transaction e de User pra memória (Transaction.find().lean() sem filtro de
+ * data nem paginação) e somava tudo em JavaScript, TODA VEZ que essa rota era
+ * chamada. Como DashboardMasterHome.tsx repete essa chamada sozinho a cada 5s
+ * enquanto a tela está aberta, isso significava reler o histórico completo de
+ * transações do zero a cada 5 segundos — funciona sem ninguém notar com
+ * poucas linhas na coleção, mas fica linearmente mais pesado conforme o
+ * negócio cresce (achado numa auditoria de performance, 2026-08-30).
+ *
+ * Agora a soma acontece dentro do próprio MongoDB (agregação com $facet, um
+ * único round-trip) — só os totais já calculados trafegam pela rede, nunca o
+ * histórico inteiro. `status:1,createdAt:-1` (transaction.model.ts) e
+ * `createdAt:-1` (user.model.ts) foram adicionados especificamente pra essas
+ * consultas, que filtram por status/data SEM userId — os índices antigos
+ * (todos começando por userId) não serviam pra elas.
+ */
 export const getKpas = async (_req: Request, res: Response): Promise<void> => {
   try {
     const today = new Date();
+    const { start: todayStart, end: todayEnd } = brazilDayBounds(today);
+    const { start: monthStart, end: monthEnd } = brazilMonthBounds(today);
 
-    // 📦 Busca dados — repasse de parceria (metadata.source: "partner_split")
-    // fica de fora: é o MESMO dinheiro da venda original já contado, incluir
-    // aqui contaria o volume da plataforma em dobro.
-    const [transactions, users] = await Promise.all([
-      Transaction.find({ "metadata.source": { $ne: "partner_split" } }).lean(),
-      User.find().lean(),
+    // 📦 Repasse de parceria (metadata.source: "partner_split") fica de fora
+    // do $match inicial — é o MESMO dinheiro da venda original já contado,
+    // incluir aqui contaria o volume da plataforma em dobro.
+    const baseMatch = { "metadata.source": { $ne: "partner_split" } };
+
+    const [facetResult, totalUsuarios, usuariosHoje] = await Promise.all([
+      Transaction.aggregate([
+        { $match: baseMatch },
+        {
+          $facet: {
+            totalCount: [{ $count: "count" }],
+            approvedTotals: [
+              { $match: { status: "approved" } },
+              { $group: { _id: null, volumeTotal: { $sum: "$amount" }, totalTaxas: { $sum: "$fee" }, approvedCount: { $sum: 1 } } },
+            ],
+            approvedHoje: [
+              { $match: { status: "approved", createdAt: { $gte: todayStart, $lt: todayEnd } } },
+              { $group: { _id: null, volumeHoje: { $sum: "$amount" } } },
+            ],
+            approvedMes: [
+              { $match: { status: "approved", createdAt: { $gte: monthStart, $lt: monthEnd } } },
+              { $group: { _id: null, taxasMensais: { $sum: "$fee" } } },
+            ],
+            volumePorMetodo: [
+              { $match: { status: "approved" } },
+              { $group: { _id: "$method", total: { $sum: "$amount" } } },
+            ],
+          },
+        },
+      ]),
+      User.countDocuments(),
+      User.countDocuments({ createdAt: { $gte: todayStart, $lt: todayEnd } }),
     ]);
 
-    const approvedTx = transactions.filter((t) => t.status === "approved");
-
-    // 📊 Cálculos principais — SÓ transações aprovadas contam como volume/
-    // taxa/ticket real. Contar pending/failed aqui já causou "saldo
-    // fantasma" idêntico no dashboard do seller (ver correção de wallet em
-    // 2026-08-10) — mesmo erro, versão agregada pro master.
-    // "hoje"/"esse mês" no horário de Brasília — o servidor roda em UTC
-    // (Render), então comparar com toDateString()/getMonth() cru contava
-    // como "hoje" vendas que já eram "ontem" pra qualquer um olhando daqui
-    // (achado em 2026-08-12: master via "Hoje: R$1.085,90" com a última
-    // venda da lista datada do dia anterior).
-    const todayKey = brazilDateKey(today);
-    const monthKey = brazilMonthKey(today);
-
-    const volumeTotal = approvedTx.reduce((sum, t) => sum + (t.amount || 0), 0);
-    const volumeHoje = approvedTx
-      .filter((t) => t.createdAt && brazilDateKey(new Date(t.createdAt)) === todayKey)
-      .reduce((sum, t) => sum + (t.amount || 0), 0);
-
-    const totalUsuarios = users.length;
-    const usuariosHoje = users.filter(
-      (u) => u.createdAt && brazilDateKey(new Date(u.createdAt)) === todayKey
-    ).length;
-
-    const totalTaxas = approvedTx.reduce((sum, t) => sum + (t.fee || 0), 0);
-    const taxasMensais = approvedTx
-      .filter((t) => t.createdAt && brazilMonthKey(new Date(t.createdAt)) === monthKey)
-      .reduce((sum, t) => sum + (t.fee || 0), 0);
+    const facet = facetResult[0];
+    const totalCount: number = facet.totalCount[0]?.count ?? 0;
+    const { volumeTotal = 0, totalTaxas = 0, approvedCount = 0 } = facet.approvedTotals[0] ?? {};
+    const { volumeHoje = 0 } = facet.approvedHoje[0] ?? {};
+    const { taxasMensais = 0 } = facet.approvedMes[0] ?? {};
 
     // Taxa de conversão é a única métrica aqui que precisa do TOTAL de
     // tentativas no denominador, por definição (aprovadas / todas).
-    const taxaConversao =
-      transactions.length > 0 ? (approvedTx.length / transactions.length) * 100 : 0;
-    const ticketMedio = approvedTx.length > 0 ? volumeTotal / approvedTx.length : 0;
+    const taxaConversao = totalCount > 0 ? (approvedCount / totalCount) * 100 : 0;
+    const ticketMedio = approvedCount > 0 ? volumeTotal / approvedCount : 0;
 
-    const volumePorMetodo = approvedTx.reduce<Record<string, number>>((acc, t) => {
-      if (!t.method) return acc;
-      acc[t.method] = (acc[t.method] || 0) + (t.amount || 0);
-      return acc;
-    }, {});
+    const volumePorMetodo = (facet.volumePorMetodo as { _id: string | null; total: number }[]).reduce<Record<string, number>>(
+      (acc, row) => {
+        if (!row._id) return acc;
+        acc[row._id] = row.total;
+        return acc;
+      },
+      {}
+    );
 
     // 📤 Resposta final
     res.status(200).json({
@@ -394,13 +418,34 @@ export const listAcquirers = async (_req: Request, res: Response): Promise<void>
           !process.env.ZENDRY_CLIENT_SECRET ? "ZENDRY_CLIENT_SECRET" : null,
         ].filter((v): v is string => Boolean(v)),
       },
+      {
+        key: "sttart",
+        name: "Sttart",
+        implemented: ACQUIRER_KEYS.includes("sttart" as any),
+        configured:
+          Boolean(process.env.STTART_API_BASE_URL) &&
+          Boolean(process.env.STTART_CLIENT_ID) &&
+          Boolean(process.env.STTART_CLIENT_SECRET),
+        missingEnv: [
+          !process.env.STTART_API_BASE_URL ? "STTART_API_BASE_URL" : null,
+          !process.env.STTART_CLIENT_ID ? "STTART_CLIENT_ID" : null,
+          !process.env.STTART_CLIENT_SECRET ? "STTART_CLIENT_SECRET" : null,
+        ].filter((v): v is string => Boolean(v)),
+      },
     ];
 
-    const sellerCounts = await Seller.aggregate([
-      { $group: { _id: "$acquirer", total: { $sum: 1 } } },
-    ]);
-    const countsByKey = sellerCounts.reduce<Record<string, number>>((acc, row) => {
-      if (row._id) acc[row._id] = row.total;
+    // 🏦 Adquirente por método (2026-08-30) — a contagem "sellers atribuídos"
+    // agora reflete a capability "pix" JÁ RESOLVIDA (aplica o fallback pro
+    // campo antigo `acquirer`), não mais o campo único cru. Pix é usado por
+    // praticamente todo seller, então é a métrica mais representativa.
+    const sellersForCount = await Seller.find().select("acquirer acquirerConfig").lean();
+    const countsByKey = sellersForCount.reduce<Record<string, number>>((acc, seller) => {
+      try {
+        const key = resolveSellerAcquirer(seller, "pix");
+        acc[key] = (acc[key] || 0) + 1;
+      } catch {
+        // Pix desligado de propósito pra esse seller — não conta em nenhuma adquirente.
+      }
       return acc;
     }, {});
 
