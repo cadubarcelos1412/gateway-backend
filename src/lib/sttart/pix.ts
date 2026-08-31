@@ -1,3 +1,4 @@
+import QRCode from "qrcode";
 import { sttartFetch } from "./client";
 import { mapSttartTransactionStatus } from "./status-mapper";
 
@@ -5,19 +6,21 @@ import { mapSttartTransactionStatus } from "./status-mapper";
 // SEMPRE em BRL (por isso nunca mandamos currency/quotationId — isso é só
 // pra cobrança denominada em moeda estrangeira, fora do nosso caso hoje).
 //
-// A Sttart devolve `qrCodeUrl` (link pra imagem), não a imagem em base64
-// direto. O resto do sistema (publicPayment.ts, transaction.service.ts)
-// espera sempre um base64 (mesmo contrato que a Zendry já devolve pronto,
-// ver lib/zendry/pix.ts) — pra não ter que mexer em checkout/API pública
-// só por causa dessa diferença de formato entre adquirentes, baixamos a
-// imagem aqui e convertemos, mantendo o mesmo shape de retorno da Zendry.
+// Confirmado ao vivo com uma cobrança real de R$1 (2026-08-31): a resposta
+// NÃO traz `qrCodeUrl` nenhum, só o `emv` (código copia-e-cola). O resto do
+// sistema (publicPayment.ts, transaction.service.ts) espera sempre um
+// base64 de imagem (mesmo contrato que a Zendry já devolve pronto, ver
+// lib/zendry/pix.ts) — então geramos o QR Code aqui mesmo, a partir do
+// texto EMV, em vez de baixar uma imagem que a Sttart não fornece.
+//
+// `amount.changeType` também confirmado ao vivo: precisa ser NÚMERO (0 =
+// valor não pode ser alterado pelo pagador, no padrão BR Code do Bacen),
+// não a string que a doc sugeria — a Sttart rejeita com 400 se mandar string.
 
 interface SttartDynamicPixResponse {
   id: string;
-  amount: number;
   txid: string;
   emv: string;
-  qrCodeUrl: string;
 }
 
 export interface CreateDynamicPixInput {
@@ -34,13 +37,9 @@ export interface CreateDynamicPixResult {
   qrCodeBase64: string;
 }
 
-async function fetchQrCodeAsBase64(url: string): Promise<string> {
-  const res = await fetch(url);
-  if (!res.ok) {
-    throw new Error(`Falha ao baixar QR Code Pix da Sttart (${res.status}).`);
-  }
-  const buffer = Buffer.from(await res.arrayBuffer());
-  return buffer.toString("base64");
+async function emvToQrCodeBase64(emv: string): Promise<string> {
+  const dataUrl = await QRCode.toDataURL(emv, { errorCorrectionLevel: "M", margin: 1 });
+  return dataUrl.replace(/^data:image\/png;base64,/, "");
 }
 
 export async function createDynamicPix(input: CreateDynamicPixInput): Promise<CreateDynamicPixResult> {
@@ -53,13 +52,13 @@ export async function createDynamicPix(input: CreateDynamicPixInput): Promise<Cr
         name: input.payerName,
         ...(isCnpj ? { cnpj: input.payerDocument } : { cpf: input.payerDocument }),
       },
-      amount: { original: input.amountBRL, changeType: "NONE" },
+      amount: { original: input.amountBRL, changeType: 0 },
       calendar: { expiration: input.expirationSeconds },
       clientRequestId: input.externalReference,
     },
   });
 
-  const qrCodeBase64 = await fetchQrCodeAsBase64(result.qrCodeUrl);
+  const qrCodeBase64 = await emvToQrCodeBase64(result.emv);
 
   return {
     referenceCode: result.txid,

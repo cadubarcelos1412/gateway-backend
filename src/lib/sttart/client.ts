@@ -7,6 +7,16 @@
 // refresh_token (~1800s) — cacheamos os dois e preferimos refresh a um novo
 // login inteiro quando o access_token expira mas o refresh_token ainda vale.
 //
+// IMPORTANTE (confirmado pelo OpenAPI real do serviço Auth da Sttart, não
+// suposição): `LoginDto` exige `username`, `password`, `realm` e `clientId`
+// — NÃO é uma chave de API única. `clientSecret` é opcional (client
+// "público" no Keycloak pode não ter secret). `grantType` aceita vários
+// valores; como o schema marca username/password como obrigatórios pra
+// qualquer grant, o default aqui é "password" (grant que de fato usa esses
+// dois campos) — client_credentials fica disponível via
+// STTART_GRANT_TYPE=client_credentials pra quando/se a Sttart confirmar que
+// funciona sem usuário real, mas isso ainda não foi testado ao vivo.
+//
 // Sem sandbox confirmado ainda (ver plano de integração) — toda chamada aqui
 // é contra o ambiente configurado em STTART_API_BASE_URL, que TEM que vir
 // das env vars: não tem domínio de produção confirmado o suficiente pra
@@ -21,20 +31,30 @@ function getSttartApiBase(): string {
 }
 
 function getCredentials(): {
+  username: string;
+  password: string;
+  realm: string;
   clientId: string;
-  clientSecret: string;
-  realm?: string;
+  clientSecret?: string;
+  grantType: string;
   tenantId?: string;
 } {
+  const username = process.env.STTART_USERNAME;
+  const password = process.env.STTART_PASSWORD;
+  const realm = process.env.STTART_REALM;
   const clientId = process.env.STTART_CLIENT_ID;
-  const clientSecret = process.env.STTART_CLIENT_SECRET;
-  if (!clientId || !clientSecret) {
-    throw new Error("STTART_CLIENT_ID / STTART_CLIENT_SECRET não configurados.");
+  if (!username || !password || !realm || !clientId) {
+    throw new Error(
+      "Credenciais Sttart incompletas: STTART_USERNAME, STTART_PASSWORD, STTART_REALM e STTART_CLIENT_ID são obrigatórios (LoginDto da Sttart exige os 4)."
+    );
   }
   return {
+    username,
+    password,
+    realm,
     clientId,
-    clientSecret,
-    realm: process.env.STTART_REALM || undefined,
+    clientSecret: process.env.STTART_CLIENT_SECRET || undefined,
+    grantType: process.env.STTART_GRANT_TYPE || "password",
     tenantId: process.env.STTART_TENANT_ID || undefined,
   };
 }
@@ -44,6 +64,16 @@ interface SttartTokenResponse {
   expires_in: number;
   refresh_token?: string;
   refresh_expires_in?: number;
+}
+
+// Envelope confirmado ao vivo em 2 serviços diferentes da Sttart (Auth e
+// Cash-In, 2026-08-31): toda resposta vem como { success, data, meta }, o
+// payload de verdade sempre dentro de `data`. Assumimos que vale pra API
+// inteira (mesmo padrão nos 2 serviços testados) — se algum endpoint novo
+// vier em formato diferente, é a primeira coisa a conferir.
+interface SttartEnvelope<T> {
+  success: boolean;
+  data: T;
 }
 
 // Cache em memória — mesma ressalva de lib/zendry/client.ts: só vale dentro
@@ -56,16 +86,18 @@ let cachedTokens: {
 } | null = null;
 
 async function login(): Promise<SttartTokenResponse> {
-  const { clientId, clientSecret, realm, tenantId } = getCredentials();
+  const { username, password, realm, clientId, clientSecret, grantType, tenantId } = getCredentials();
 
   const res = await fetch(`${getSttartApiBase()}/v1/api/auth/login`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
+      username,
+      password,
+      realm,
       clientId,
-      clientSecret,
-      grantType: "client_credentials",
-      ...(realm ? { realm } : {}),
+      grantType,
+      ...(clientSecret ? { clientSecret } : {}),
       ...(tenantId ? { tenantId } : {}),
     }),
   });
@@ -75,7 +107,8 @@ async function login(): Promise<SttartTokenResponse> {
     throw new Error(`Sttart recusou o login (${res.status}): ${errorBody}`);
   }
 
-  return res.json() as Promise<SttartTokenResponse>;
+  const body = (await res.json()) as SttartEnvelope<SttartTokenResponse>;
+  return body.data;
 }
 
 async function refresh(refreshToken: string): Promise<SttartTokenResponse> {
@@ -92,7 +125,8 @@ async function refresh(refreshToken: string): Promise<SttartTokenResponse> {
     throw new Error(`Sttart recusou o refresh (${res.status}): ${errorBody}`);
   }
 
-  return res.json() as Promise<SttartTokenResponse>;
+  const body = (await res.json()) as SttartEnvelope<SttartTokenResponse>;
+  return body.data;
 }
 
 function storeTokens(tokens: SttartTokenResponse): void {
@@ -160,5 +194,6 @@ export async function sttartFetch<T>(
   }
 
   if (res.status === 204) return undefined as unknown as T;
-  return res.json() as Promise<T>;
+  const body = (await res.json()) as SttartEnvelope<T>;
+  return body.data;
 }
