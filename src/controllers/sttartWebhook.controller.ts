@@ -12,9 +12,9 @@ import { applyZendryPaymentStatus } from "../services/zendryPaymentStatus.servic
  * webhook de cash-in — cash-out não tem webhook documentado, só polling
  * (ver lib/sttart/payout.ts e sttartReconciliation.service.ts).
  *
- * Autenticação/header de assinatura NÃO confirmados contra a doc real ainda
- * (ver ressalva em lib/sttart/webhook.ts) — mesma desconfiança já aplicada
- * a toda a integração Sttart, sem sandbox validado.
+ * Autenticação confirmada ao vivo em 2026-08-31 (ver lib/sttart/webhook.ts):
+ * não é HMAC, é o header customizado configurado no cadastro do endpoint
+ * (customHeaders, POST /v1/api/webhook/webhook-endpoints).
  */
 export const sttartWebhook = async (req: Request, res: Response): Promise<void> => {
   const hmacSecret = process.env.STTART_WEBHOOK_SECRET || "";
@@ -41,6 +41,7 @@ export const sttartWebhook = async (req: Request, res: Response): Promise<void> 
   try {
     const event = parseSttartWebhook(req.body);
     if (!event) {
+      console.warn("⚠️ Webhook Sttart autenticado mas não reconhecido (corpo fora do envelope esperado):", req.body);
       void SttartUnrecognizedWebhook.create({ headers: req.headers, body: req.body }).catch((err) =>
         console.error("⚠️ Falha ao registrar webhook Sttart não reconhecido:", err)
       );
@@ -62,7 +63,10 @@ export const sttartWebhook = async (req: Request, res: Response): Promise<void> 
       throw err;
     }
 
-    await applyZendryPaymentStatus(event.externalId, event.status);
+    const result = await applyZendryPaymentStatus(event.externalId, event.status);
+    console.log(
+      `✅ Webhook Sttart processado: eventType=${event.eventType} externalId=${event.externalId} applied=${result.applied} newlyApproved=${result.newlyApproved}`
+    );
 
     res.status(200).json({ status: true });
   } catch (error) {
