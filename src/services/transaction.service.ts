@@ -224,6 +224,7 @@ export class TransactionService {
     };
 
     let externalId = "";
+    let secondaryExternalId: string | undefined;
     let postbackUrl = dto.postbackUrl;
     let paymentDetails: CreateTransactionResult["paymentDetails"];
     let synchronouslyApproved = false;
@@ -231,6 +232,7 @@ export class TransactionService {
     try {
       const result = await acquirer.createTransaction(dto);
       externalId = result.externalId;
+      secondaryExternalId = result.secondaryExternalId;
       postbackUrl = result.postbackUrl || postbackUrl;
       paymentDetails = result.paymentDetails;
       synchronouslyApproved = result.synchronouslyApproved ?? false;
@@ -352,6 +354,7 @@ export class TransactionService {
           acquirer: acquirerKey,
           description: dto.description,
           externalId,
+          secondaryExternalId,
           postback: postbackUrl,
           riskFlags,
           idempotencyKey: idempotencyKey || null,

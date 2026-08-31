@@ -40,6 +40,10 @@ export interface ITransaction extends Document {
   acquirer?: "zendry" | "sttart";
   description?: string;
   externalId?: string;
+  /** Segundo identificador da adquirente (ver CreateTransactionResult.secondaryExternalId) —
+   * hoje só usado pela Sttart, cujo webhook de pagamento confirmado referencia um
+   * apiTransactionId diferente do txid guardado em externalId. */
+  secondaryExternalId?: string;
   postback?: string;
   riskFlags: string[];
   trackingParameters?: TrackingParameters;
@@ -121,6 +125,7 @@ const TransactionSchema = new Schema<ITransaction>(
 
     description: { type: String, trim: true, maxlength: 255 },
     externalId: { type: String, index: true },
+    secondaryExternalId: { type: String, index: true },
     postback: { type: String },
 
     idempotencyKey: {

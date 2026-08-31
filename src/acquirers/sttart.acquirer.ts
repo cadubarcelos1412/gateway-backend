@@ -47,6 +47,7 @@ export class SttartAcquirer implements IAcquirer {
 
     return {
       externalId: result.referenceCode,
+      secondaryExternalId: result.secondaryReferenceCode,
       postbackUrl: payload.postbackUrl,
       paymentDetails: {
         pixCode: result.pixCode,

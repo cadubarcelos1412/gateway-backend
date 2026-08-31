@@ -1,4 +1,5 @@
 import { Request, Response } from "express";
+import { Transaction } from "../models/transaction.model";
 import { SttartWebhookEvent } from "../models/sttartWebhookEvent.model";
 import { SttartUnrecognizedWebhook } from "../models/sttartUnrecognizedWebhook.model";
 import { findWebhookSignatureHeader, verifyWebhookHmacSignature, parseSttartWebhook } from "../lib/sttart/webhook";
@@ -63,9 +64,22 @@ export const sttartWebhook = async (req: Request, res: Response): Promise<void> 
       throw err;
     }
 
-    const result = await applyZendryPaymentStatus(event.externalId, event.status);
+    // A Sttart usa IDs diferentes em `resource.id` dependendo do evento:
+    // transaction.created manda o txid (Transaction.externalId), mas
+    // transaction.succeeded/failed/etc manda o apiTransactionId
+    // (Transaction.secondaryExternalId) — confirmado ao vivo em 2 pagamentos
+    // reais (2026-08-31). Resolve por qualquer um dos dois antes de aplicar
+    // o status, sempre usando o externalId real da transação encontrada
+    // (applyZendryPaymentStatus não muda, continua fazendo seu próprio lookup).
+    const tx = await Transaction.findOne({
+      $or: [{ externalId: event.externalId }, { secondaryExternalId: event.externalId }],
+    }).select("externalId");
+
+    const result = tx?.externalId
+      ? await applyZendryPaymentStatus(tx.externalId, event.status)
+      : { applied: false, newlyApproved: false, newlyFailed: false };
     console.log(
-      `✅ Webhook Sttart processado: eventType=${event.eventType} externalId=${event.externalId} applied=${result.applied} newlyApproved=${result.newlyApproved}`
+      `✅ Webhook Sttart processado: eventType=${event.eventType} resourceId=${event.externalId} matchedTransaction=${!!tx} applied=${result.applied} newlyApproved=${result.newlyApproved}`
     );
 
     res.status(200).json({ status: true });

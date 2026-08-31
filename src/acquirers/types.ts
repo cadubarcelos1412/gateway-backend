@@ -79,6 +79,13 @@ export type CreateTransactionDTO = {
 
 export type CreateTransactionResult = {
   externalId: string;
+  /**
+   * Segundo identificador da adquirente, quando ela usa IDs diferentes pra
+   * eventos diferentes (ex.: Sttart — `transaction.created` referencia o
+   * txid, `transaction.succeeded` referencia um `apiTransactionId`
+   * diferente). Ausente pra adquirentes com um único ID (ex.: Zendry).
+   */
+  secondaryExternalId?: string;
   postbackUrl?: string;
 
   /**

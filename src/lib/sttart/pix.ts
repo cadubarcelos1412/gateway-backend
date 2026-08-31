@@ -19,6 +19,7 @@ import { mapSttartTransactionStatus } from "./status-mapper";
 
 interface SttartDynamicPixResponse {
   id: string;
+  apiTransactionId: string;
   txid: string;
   emv: string;
 }
@@ -33,6 +34,15 @@ export interface CreateDynamicPixInput {
 
 export interface CreateDynamicPixResult {
   referenceCode: string;
+  /**
+   * `apiTransactionId` da Sttart — confirmado ao vivo (2026-08-31, 2
+   * pagamentos reais) que é ESSE valor, não o `txid`, que vem em
+   * `resource.id` no webhook `transaction.succeeded`. O evento
+   * `transaction.created` usa o `txid`. Sem guardar os dois, a confirmação
+   * de pagamento nunca bate com a transação certa — guardar aqui pra
+   * transaction.service.ts persistir em Transaction.secondaryExternalId.
+   */
+  secondaryReferenceCode: string;
   pixCode: string;
   qrCodeBase64: string;
 }
@@ -62,18 +72,15 @@ export async function createDynamicPix(input: CreateDynamicPixInput): Promise<Cr
 
   return {
     referenceCode: result.txid,
+    secondaryReferenceCode: result.apiTransactionId,
     pixCode: result.emv,
     qrCodeBase64,
   };
 }
 
-// ⚠️ A doc da Sttart passada confirma GET /v1/api/cash-in/pix/e2e/{endToEndId}
-// (lookup por End-to-End id do Pix, não pelo nosso txid/clientRequestId) —
-// não temos confirmação de um endpoint de consulta direta por txid como
-// este. Rota abaixo é a melhor suposição (espelha o padrão REST do resto da
-// API) e PRECISA ser validada contra a doc real ou suporte da Sttart antes
-// de confiar na reconciliação de cash-in — mesma desconfiança que já vale
-// pro resto da integração Sttart, sem sandbox confirmado.
+// GET /v1/api/cash-in/pix/{txid} confirmado ao vivo (2026-08-31, várias
+// chamadas reais) — aceita o txid normalmente, doc antiga já pode ser
+// ignorada.
 export interface SttartPixStatus {
   referenceCode: string;
   status: ReturnType<typeof mapSttartTransactionStatus>;
