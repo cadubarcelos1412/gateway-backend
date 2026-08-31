@@ -2,28 +2,16 @@ import crypto from "crypto";
 import type { ZendryVerificationStatus } from "../zendry/types";
 import { mapSttartTransactionStatus } from "./status-mapper";
 
-// Verificação de assinatura do webhook de cash-in da Sttart. A doc mostra
-// que cada endpoint cadastrado (POST /v1/api/webhook/webhook-endpoints)
-// recebe um `secret` no formato `whsec_...` (mesmo padrão visual do
-// Stripe) — MAS não temos confirmação de qual header carrega a assinatura
-// nem do algoritmo exato (assumindo HMAC-SHA256 sobre o corpo cru, mesmo
-// mecanismo já confirmado funcionando pro lado Zendry). Isso só vai ficar
-// 100% certo quando o primeiro evento real chegar — loga os headers
-// recebidos quando nenhum candidato bater, mesma tática já usada em
-// zendryWebhook.controller.ts pra descobrir o header real em produção.
-const SIGNATURE_HEADERS = ["x-sttart-signature", "sttart-signature", "x-signature"];
-
-export function findWebhookSignatureHeader(
-  headers: Record<string, unknown>
-): { header: string; value: string } | null {
-  for (const name of SIGNATURE_HEADERS) {
-    const value = headers[name];
-    if (typeof value === "string" && value.length > 0) {
-      return { header: name, value };
-    }
-  }
-  return null;
-}
+// Autenticação do webhook de cash-in da Sttart — confirmado ao vivo
+// (2026-08-31, 3 chamadas reais recebidas): a Sttart NÃO manda nenhum
+// header de assinatura HMAC (nem x-sttart-signature nem qualquer variante
+// — os 17 headers reais recebidos foram só os de infraestrutura/proxy,
+// nenhum de auth). O `secret` (whsec_...) devolvido no cadastro do
+// endpoint não é usado assim. O mecanismo real é `customHeaders` (campo
+// do POST /v1/api/webhook/webhook-endpoints): a gente escolhe um header e
+// valor na hora do cadastro, e a Sttart devolve exatamente esse header em
+// toda chamada — comparação simples, não HMAC.
+const CUSTOM_AUTH_HEADER = "x-pyxgate-webhook-key";
 
 function timingSafeEqualStrings(a: string, b: string): boolean {
   const bufA = Buffer.from(a);
@@ -32,13 +20,18 @@ function timingSafeEqualStrings(a: string, b: string): boolean {
   return crypto.timingSafeEqual(bufA, bufB);
 }
 
-export function verifyWebhookHmacSignature(rawBody: Buffer, providedSignature: string, secret: string): boolean {
-  const expectedHex = crypto.createHmac("sha256", secret).update(rawBody).digest("hex");
-  const expectedBase64 = crypto.createHmac("sha256", secret).update(rawBody).digest("base64");
+export function findWebhookSignatureHeader(
+  headers: Record<string, unknown>
+): { header: string; value: string } | null {
+  const value = headers[CUSTOM_AUTH_HEADER];
+  if (typeof value === "string" && value.length > 0) {
+    return { header: CUSTOM_AUTH_HEADER, value };
+  }
+  return null;
+}
 
-  const cleaned = providedSignature.trim().replace(/^sha256=/i, "");
-
-  return timingSafeEqualStrings(cleaned, expectedHex) || timingSafeEqualStrings(cleaned, expectedBase64);
+export function verifyWebhookHmacSignature(_rawBody: Buffer, providedValue: string, secret: string): boolean {
+  return timingSafeEqualStrings(providedValue.trim(), secret);
 }
 
 // Envelope padrão documentado: { eventId, eventType, occurredAt,
