@@ -28,11 +28,11 @@ export interface IFeeTable {
 // internos (amex/elo/mastercard/visa/standard) só porque o resto do código
 // resolve a taxa real pela bandeira detectada na transação (ver
 // transaction.service.ts); todos apontam pro mesmo valor.
-// Tabela atualizada em 2026-09-05 (pedido direto do produto).
+// Tabela corrigida em 2026-09-05 (a de antes no mesmo dia estava errada).
 const CARD_FEES: CardInstallmentFees = {
-  "1": 10.13, "2": 13.52, "3": 16.50, "4": 19.49, "5": 22.48, "6": 25.48, "7": 28.84,
-  "8": 31.86, "9": 34.87, "10": 37.90, "11": 40.93, "12": 43.97, "13": 47.51, "14": 50.56,
-  "15": 53.62, "16": 56.69, "17": 59.76, "18": 62.84, "19": 65.93, "20": 69.02, "21": 72.12,
+  "1": 10.13, "2": 11.23, "3": 11.92, "4": 12.62, "5": 13.32, "6": 14.03, "7": 15.10,
+  "8": 15.83, "9": 16.55, "10": 17.29, "11": 18.03, "12": 18.78, "13": 20.03, "14": 20.79,
+  "15": 21.56, "16": 22.34, "17": 23.12, "18": 23.91, "19": 24.71, "20": 25.51, "21": 26.32,
 };
 
 export const DEFAULT_FEE_TABLE: IFeeTable = {
