@@ -6,6 +6,8 @@ const STATUS_MAP: Record<ITransaction["status"], string> = {
   pending: "pending",
   approved: "paid",
   failed: "failed",
+  refunded: "refunded",
+  chargedback: "chargedback",
 };
 
 const METHOD_MAP: Record<ITransaction["method"], string> = {

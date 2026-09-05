@@ -10,6 +10,19 @@ import { PixKeyType } from "../acquirers/types";
 import { DEFAULT_FEE_TABLE } from "../models/feeTable.types";
 import { releaseMaturedBalance } from "./wallet.service";
 import { ICashoutRequest } from "../models/cashoutRequest.model";
+import { dispatchWebhookEvent } from "./webhook.service";
+
+function toPublicWithdraw(cashout: { _id: unknown; amount: number; fee?: number; netAmount?: number; status: string }) {
+  return {
+    id: String(cashout._id),
+    object: "withdraw",
+    amount: Math.round(cashout.amount * 100),
+    fee: cashout.fee ? Math.round(cashout.fee * 100) : undefined,
+    net_amount: cashout.netAmount ? Math.round(cashout.netAmount * 100) : undefined,
+    currency: "BRL",
+    status: cashout.status,
+  };
+}
 
 /**
  * 💸 Serviço de Cashout (Liquidação)
@@ -560,6 +573,11 @@ export class CashoutService {
         flags: [],
         description: `Saque manual registrado (feito direto na Zendry) por admin ${adminId.toString()}.`,
       });
+
+      const seller = await Seller.findOne({ userId });
+      if (seller) {
+        void dispatchWebhookEvent(String(seller._id), "withdraw.completed", toPublicWithdraw(cashout));
+      }
 
       return cashout;
     } catch (err) {

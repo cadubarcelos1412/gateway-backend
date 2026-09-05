@@ -11,6 +11,37 @@ import { Seller } from "../models/seller.model";
 import { SavedBeneficiary } from "../models/savedBeneficiary.model";
 import { cloudinary } from "../config/cloudinary";
 import { signedAuthenticatedUrl } from "../utils/cloudinarySecureUrl";
+import { dispatchWebhookEvent } from "../services/webhook.service";
+
+/** Payload público mínimo de saque pro webhook — mesma ideia de
+ * utils/publicPayment.ts, mas pra CashoutRequest (não tem um "público"
+ * formal ainda porque saque não é exposto na API /v1 hoje). */
+function toPublicWithdraw(cashout: {
+  _id: unknown;
+  amount: number;
+  fee?: number;
+  netAmount?: number;
+  status: string;
+  createdAt?: Date;
+}) {
+  return {
+    id: String(cashout._id),
+    object: "withdraw",
+    amount: Math.round(cashout.amount * 100),
+    fee: cashout.fee ? Math.round(cashout.fee * 100) : undefined,
+    net_amount: cashout.netAmount ? Math.round(cashout.netAmount * 100) : undefined,
+    currency: "BRL",
+    status: cashout.status,
+    created: cashout.createdAt ? Math.floor(new Date(cashout.createdAt).getTime() / 1000) : undefined,
+  };
+}
+
+async function dispatchWithdrawEvent(userId: unknown, eventType: string, cashout: Parameters<typeof toPublicWithdraw>[0]) {
+  const seller = await Seller.findOne({ userId });
+  if (seller) {
+    void dispatchWebhookEvent(String(seller._id), eventType, toPublicWithdraw(cashout));
+  }
+}
 
 /**
  * Bloqueia saque de quem ainda não tem KYC aprovado — antes só o frontend
@@ -112,6 +143,7 @@ export const createCashoutRequest = async (req: Request, res: Response): Promise
       holderDocument: holderDocumentDigits,
     });
     await session.commitTransaction();
+    void dispatchWithdrawEvent(user._id, "withdraw.created", cashout);
 
     // 📇 "Salvar favorecido" — best-effort, não deve derrubar o saque que já
     // foi criado com sucesso se isso falhar por algum motivo.
@@ -153,6 +185,7 @@ export const createCashoutRequest = async (req: Request, res: Response): Promise
         await autoSession.commitTransaction();
         cashout = approved;
         autoProcessed = true;
+        void dispatchWithdrawEvent(user._id, "withdraw.approved", cashout);
       } catch (err) {
         await autoSession.abortTransaction();
         console.error("❌ Falha ao auto-aprovar saque (seguirá pendente pra aprovação manual):", err);
@@ -416,6 +449,7 @@ export const approveCashoutRequest = async (req: Request, res: Response): Promis
     );
 
     await session.commitTransaction();
+    void dispatchWithdrawEvent(cashout.userId, "withdraw.approved", cashout);
 
     // Só depois do commit — envio real à Zendry é irreversível, não pode
     // ficar no meio de uma transação que ainda pudesse abortar.
@@ -477,6 +511,7 @@ export const rejectCashoutRequest = async (req: Request, res: Response): Promise
     );
 
     await session.commitTransaction();
+    void dispatchWithdrawEvent(cashout.userId, "withdraw.rejected", cashout);
 
     res.status(200).json({
       status: true,

@@ -1,6 +1,6 @@
 // src/services/webhookEndpoint.service.ts
 import crypto from "crypto";
-import { WebhookEndpoint, WEBHOOK_EVENT_TYPES } from "../models/webhookEndpoint.model";
+import { WebhookEndpoint, WEBHOOK_EVENT_TYPES, PLATFORM_EVENT_TYPES } from "../models/webhookEndpoint.model";
 
 /**
  * Lógica compartilhada de CRUD de webhook endpoints, reaproveitada tanto
@@ -49,4 +49,46 @@ export async function updateWebhookEndpoint(
 
 export async function deleteWebhookEndpoint(merchantId: string, id: string) {
   return WebhookEndpoint.findOneAndDelete({ _id: id, merchantId });
+}
+
+/* -------------------------------------------------------------------------- */
+/* 🌐 Endpoints de PLATAFORMA (scope: "platform") — só master, sem merchantId */
+/* -------------------------------------------------------------------------- */
+
+export function isValidPlatformEventList(events: unknown): events is string[] {
+  if (!Array.isArray(events) || events.length === 0) return false;
+  return events.every((e) => e === "*" || (PLATFORM_EVENT_TYPES as readonly string[]).includes(e));
+}
+
+export async function createPlatformWebhookEndpoint(url: string, events: string[]) {
+  return WebhookEndpoint.create({
+    scope: "platform",
+    url,
+    events,
+    secret: generateWebhookSecret(),
+    active: true,
+  });
+}
+
+export async function listPlatformWebhookEndpoints() {
+  return WebhookEndpoint.find({ scope: "platform" }).sort({ createdAt: -1 });
+}
+
+export async function updatePlatformWebhookEndpoint(
+  id: string,
+  updates: { url?: string; events?: string[]; active?: boolean }
+) {
+  const endpoint = await WebhookEndpoint.findOne({ _id: id, scope: "platform" });
+  if (!endpoint) return null;
+
+  if (updates.url) endpoint.url = updates.url;
+  if (updates.events) endpoint.events = updates.events;
+  if (typeof updates.active === "boolean") endpoint.active = updates.active;
+
+  await endpoint.save();
+  return endpoint;
+}
+
+export async function deletePlatformWebhookEndpoint(id: string) {
+  return WebhookEndpoint.findOneAndDelete({ _id: id, scope: "platform" });
 }

@@ -15,6 +15,7 @@ import {
   sendPartnershipPercentageChangeEmail,
   sendPartnershipRevokedEmail,
 } from "../services/email.service";
+import { dispatchPlatformWebhookEvent } from "../services/webhook.service";
 
 /** Carência entre pedir a revogação de uma parceria e ela parar de valer de
  * verdade — decisão de negócio de 2026-08-18, pra não tirar o destinatário
@@ -297,6 +298,15 @@ export const verifySellerKYC = async (req: Request, res: Response): Promise<void
 
     seller.kycStatus = status;
     await seller.save();
+
+    if (status === "approved" || status === "under_review") {
+      void dispatchPlatformWebhookEvent(status === "approved" ? "platform.kyc_approved" : "platform.kyc_pending", {
+        sellerId: String(seller._id),
+        sellerName: seller.name,
+        sellerEmail: seller.email,
+        status,
+      });
+    }
 
     res.status(200).json({
       status: true,

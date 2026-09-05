@@ -4,7 +4,7 @@ import { Seller } from "../models/seller.model";
 import { Wallet } from "../models/wallet.model";
 import { postLedgerEntries } from "./ledger/ledger.service";
 import { reverseTransactionLedgerAndWallet } from "./ledger/reversal.service";
-import { dispatchWebhookEvent } from "./webhook.service";
+import { dispatchWebhookEvent, dispatchPlatformWebhookEvent } from "./webhook.service";
 import { toPublicPayment } from "../utils/publicPayment";
 import type { ZendryVerificationStatus } from "../lib/zendry/types";
 
@@ -232,6 +232,13 @@ export async function applyZendryPaymentStatus(externalId: string, status: Zendr
         newlyApproved ? "payment.paid" : "payment.failed",
         toPublicPayment(transaction)
       );
+    }
+    if (newlyFailed) {
+      void dispatchPlatformWebhookEvent("platform.payment_failed", {
+        ...toPublicPayment(transaction),
+        sellerId: seller ? String(seller._id) : undefined,
+        sellerName: seller?.name,
+      });
     }
   }
 

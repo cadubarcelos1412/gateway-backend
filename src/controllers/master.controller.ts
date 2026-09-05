@@ -8,6 +8,19 @@ import { getOrCreateDefaultFeeConfig, SystemFeeConfig } from "../models/systemFe
 import { SplitRule } from "../models/splitRule.model";
 import { reconcilePendingZendryPix } from "../services/zendryReconciliation.service";
 import { brazilDayBounds, brazilMonthBounds } from "../utils/timezone";
+import { recordManualRefund, recordChargeback, recordPartialCancellation } from "../services/paymentReversal.service";
+import {
+  createWebhookEndpoint,
+  listWebhookEndpoints,
+  updateWebhookEndpoint,
+  deleteWebhookEndpoint,
+  isValidEventList,
+  createPlatformWebhookEndpoint,
+  listPlatformWebhookEndpoints,
+  updatePlatformWebhookEndpoint,
+  deletePlatformWebhookEndpoint,
+  isValidPlatformEventList,
+} from "../services/webhookEndpoint.service";
 
 /**
  * 🔑 Utilitário — pegar usuário autenticado pelo token e exigir role master.
@@ -547,5 +560,223 @@ export const reconcileZendryPix = async (req: Request, res: Response): Promise<v
   } catch (error) {
     console.error("❌ Erro em reconcileZendryPix:", error);
     res.status(500).json({ status: false, msg: "Erro interno ao reconciliar." });
+  }
+};
+
+/**
+ * 💸 POST /api/master/transactions/:id/refund
+ * POST /api/master/transactions/:id/chargeback
+ * POST /api/master/transactions/:id/partial-cancel
+ *
+ * Registro MANUAL — a PyxGate não chama nenhuma API de adquirente aqui
+ * (nem Zendry nem Sttart têm estorno confirmado, ver
+ * services/paymentReversal.service.ts). O dinheiro já foi devolvido pelo
+ * master fora do sistema; isso só reverte nosso próprio ledger/wallet e
+ * avisa o seller via webhook. `reason` obrigatório pra trilha de auditoria.
+ */
+export const refundTransaction = async (req: Request, res: Response): Promise<void> => {
+  const user = await requireMasterUser(req, res);
+  if (!user) return;
+
+  const { reason } = req.body;
+  if (!reason || typeof reason !== "string" || !reason.trim()) {
+    res.status(400).json({ status: false, msg: "Motivo do reembolso é obrigatório." });
+    return;
+  }
+
+  try {
+    const transaction = await recordManualRefund(req.params.id, String(user._id), reason.trim());
+    res.status(200).json({ status: true, transaction });
+  } catch (error: any) {
+    console.error("❌ Erro em refundTransaction:", error);
+    res.status(400).json({ status: false, msg: error.message || "Erro ao registrar reembolso." });
+  }
+};
+
+export const chargebackTransaction = async (req: Request, res: Response): Promise<void> => {
+  const user = await requireMasterUser(req, res);
+  if (!user) return;
+
+  const { reason } = req.body;
+  if (!reason || typeof reason !== "string" || !reason.trim()) {
+    res.status(400).json({ status: false, msg: "Motivo do chargeback é obrigatório." });
+    return;
+  }
+
+  try {
+    const transaction = await recordChargeback(req.params.id, String(user._id), reason.trim());
+    res.status(200).json({ status: true, transaction });
+  } catch (error: any) {
+    console.error("❌ Erro em chargebackTransaction:", error);
+    res.status(400).json({ status: false, msg: error.message || "Erro ao registrar chargeback." });
+  }
+};
+
+/* -------------------------------------------------------------------------- */
+/* 🔔 Webhooks — ferramenta de suporte (master gerenciando o webhook de um    */
+/* seller específico) + webhooks de plataforma (scope "platform")            */
+/* -------------------------------------------------------------------------- */
+
+export const listSellerWebhookEndpointsAsMaster = async (req: Request, res: Response): Promise<void> => {
+  const user = await requireMasterUser(req, res);
+  if (!user) return;
+  try {
+    const endpoints = await listWebhookEndpoints(req.params.id);
+    res.status(200).json({ status: true, webhookEndpoints: endpoints.map((e) => e.toJSON()) });
+  } catch (error) {
+    console.error("❌ Erro em listSellerWebhookEndpointsAsMaster:", error);
+    res.status(500).json({ status: false, msg: "Erro interno ao listar webhook endpoints." });
+  }
+};
+
+export const createSellerWebhookEndpointAsMaster = async (req: Request, res: Response): Promise<void> => {
+  const user = await requireMasterUser(req, res);
+  if (!user) return;
+  const { url, events } = req.body;
+  if (!url || typeof url !== "string") {
+    res.status(400).json({ status: false, msg: "url é obrigatória." });
+    return;
+  }
+  if (!isValidEventList(events)) {
+    res.status(400).json({ status: false, msg: "events inválido." });
+    return;
+  }
+  try {
+    const endpoint = await createWebhookEndpoint(req.params.id, url, events);
+    res.status(201).json({ status: true, webhookEndpoint: endpoint.toJSON() });
+  } catch (error) {
+    console.error("❌ Erro em createSellerWebhookEndpointAsMaster:", error);
+    res.status(500).json({ status: false, msg: "Erro interno ao criar webhook endpoint." });
+  }
+};
+
+export const updateSellerWebhookEndpointAsMaster = async (req: Request, res: Response): Promise<void> => {
+  const user = await requireMasterUser(req, res);
+  if (!user) return;
+  const { url, events, active } = req.body;
+  if (events !== undefined && !isValidEventList(events)) {
+    res.status(400).json({ status: false, msg: "events inválido." });
+    return;
+  }
+  try {
+    const endpoint = await updateWebhookEndpoint(req.params.id, req.params.endpointId, { url, events, active });
+    if (!endpoint) {
+      res.status(404).json({ status: false, msg: "Webhook endpoint não encontrado." });
+      return;
+    }
+    res.status(200).json({ status: true, webhookEndpoint: endpoint.toJSON() });
+  } catch (error) {
+    console.error("❌ Erro em updateSellerWebhookEndpointAsMaster:", error);
+    res.status(500).json({ status: false, msg: "Erro interno ao atualizar webhook endpoint." });
+  }
+};
+
+export const deleteSellerWebhookEndpointAsMaster = async (req: Request, res: Response): Promise<void> => {
+  const user = await requireMasterUser(req, res);
+  if (!user) return;
+  try {
+    const endpoint = await deleteWebhookEndpoint(req.params.id, req.params.endpointId);
+    if (!endpoint) {
+      res.status(404).json({ status: false, msg: "Webhook endpoint não encontrado." });
+      return;
+    }
+    res.status(200).json({ status: true, msg: "Webhook endpoint removido." });
+  } catch (error) {
+    console.error("❌ Erro em deleteSellerWebhookEndpointAsMaster:", error);
+    res.status(500).json({ status: false, msg: "Erro interno ao remover webhook endpoint." });
+  }
+};
+
+export const listPlatformWebhookEndpointsHandler = async (req: Request, res: Response): Promise<void> => {
+  const user = await requireMasterUser(req, res);
+  if (!user) return;
+  try {
+    const endpoints = await listPlatformWebhookEndpoints();
+    res.status(200).json({ status: true, webhookEndpoints: endpoints.map((e) => e.toJSON()) });
+  } catch (error) {
+    console.error("❌ Erro em listPlatformWebhookEndpointsHandler:", error);
+    res.status(500).json({ status: false, msg: "Erro interno ao listar webhooks de plataforma." });
+  }
+};
+
+export const createPlatformWebhookEndpointHandler = async (req: Request, res: Response): Promise<void> => {
+  const user = await requireMasterUser(req, res);
+  if (!user) return;
+  const { url, events } = req.body;
+  if (!url || typeof url !== "string") {
+    res.status(400).json({ status: false, msg: "url é obrigatória." });
+    return;
+  }
+  if (!isValidPlatformEventList(events)) {
+    res.status(400).json({ status: false, msg: "events inválido." });
+    return;
+  }
+  try {
+    const endpoint = await createPlatformWebhookEndpoint(url, events);
+    res.status(201).json({ status: true, webhookEndpoint: endpoint.toJSON() });
+  } catch (error) {
+    console.error("❌ Erro em createPlatformWebhookEndpointHandler:", error);
+    res.status(500).json({ status: false, msg: "Erro interno ao criar webhook de plataforma." });
+  }
+};
+
+export const updatePlatformWebhookEndpointHandler = async (req: Request, res: Response): Promise<void> => {
+  const user = await requireMasterUser(req, res);
+  if (!user) return;
+  const { url, events, active } = req.body;
+  if (events !== undefined && !isValidPlatformEventList(events)) {
+    res.status(400).json({ status: false, msg: "events inválido." });
+    return;
+  }
+  try {
+    const endpoint = await updatePlatformWebhookEndpoint(req.params.id, { url, events, active });
+    if (!endpoint) {
+      res.status(404).json({ status: false, msg: "Webhook endpoint não encontrado." });
+      return;
+    }
+    res.status(200).json({ status: true, webhookEndpoint: endpoint.toJSON() });
+  } catch (error) {
+    console.error("❌ Erro em updatePlatformWebhookEndpointHandler:", error);
+    res.status(500).json({ status: false, msg: "Erro interno ao atualizar webhook de plataforma." });
+  }
+};
+
+export const deletePlatformWebhookEndpointHandler = async (req: Request, res: Response): Promise<void> => {
+  const user = await requireMasterUser(req, res);
+  if (!user) return;
+  try {
+    const endpoint = await deletePlatformWebhookEndpoint(req.params.id);
+    if (!endpoint) {
+      res.status(404).json({ status: false, msg: "Webhook endpoint não encontrado." });
+      return;
+    }
+    res.status(200).json({ status: true, msg: "Webhook endpoint removido." });
+  } catch (error) {
+    console.error("❌ Erro em deletePlatformWebhookEndpointHandler:", error);
+    res.status(500).json({ status: false, msg: "Erro interno ao remover webhook de plataforma." });
+  }
+};
+
+export const partialCancelTransaction = async (req: Request, res: Response): Promise<void> => {
+  const user = await requireMasterUser(req, res);
+  if (!user) return;
+
+  const { reason, amount } = req.body;
+  if (!reason || typeof reason !== "string" || !reason.trim()) {
+    res.status(400).json({ status: false, msg: "Motivo do cancelamento parcial é obrigatório." });
+    return;
+  }
+  const parsedAmount = Number(amount);
+  if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
+    res.status(400).json({ status: false, msg: "Valor do cancelamento parcial inválido." });
+    return;
+  }
+
+  try {
+    const transaction = await recordPartialCancellation(req.params.id, parsedAmount, String(user._id), reason.trim());
+    res.status(200).json({ status: true, transaction });
+  } catch (error: any) {
+    console.error("❌ Erro em partialCancelTransaction:", error);
+    res.status(400).json({ status: false, msg: error.message || "Erro ao registrar cancelamento parcial." });
   }
 };

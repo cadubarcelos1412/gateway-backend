@@ -26,12 +26,31 @@ export interface ITransaction extends Document {
   retentionDays: number;
   type: "deposit" | "withdraw";
   method: "pix" | "credit_card" | "boleto";
-  status: "pending" | "approved" | "failed";
-  /** Marcado quando o ledger/wallet já foram revertidos (falha pós-reserva) — evita reversão duplicada. */
+  /** "refunded"/"chargedback" só são alcançados a partir de "approved", via registro
+   * manual do master (ver services/paymentReversal.service.ts) — nem Zendry nem Sttart
+   * têm API de estorno confirmada, então o estorno bancário acontece fora do sistema. */
+  status: "pending" | "approved" | "failed" | "refunded" | "chargedback";
+  /** Marcado quando o ledger/wallet já foram revertidos (falha pós-reserva OU reembolso/chargeback
+   * manual) — evita reversão duplicada. */
   reversedAt?: Date;
   /** Marcado quando o ledger/wallet já foram creditados de verdade (ver applyZendryPaymentStatus) —
    * evita creditar duas vezes se o status "approved" for aplicado mais de uma vez. */
   creditedAt?: Date;
+  refundedAt?: Date;
+  refundReason?: string;
+  refundedBy?: Types.ObjectId;
+  chargedbackAt?: Date;
+  chargebackReason?: string;
+  chargedbackBy?: Types.ObjectId;
+  /** Cancelamento parcial: registro informativo (dispara webhook payment.partially_canceled),
+   * NÃO mexe em ledger/wallet automaticamente — reversão proporcional fica pra depois, se
+   * algum dia for necessária (ver plano). */
+  partialCancellations?: {
+    amount: number;
+    reason: string;
+    recordedBy: Types.ObjectId;
+    recordedAt: Date;
+  }[];
   /** "test" para transações criadas com uma chave de API sk_test_...; "live" para dinheiro real. */
   mode: "test" | "live";
   /** Snapshot de qual adquirente processou essa transação (Seller.acquirer no momento da criação) —
@@ -102,13 +121,27 @@ const TransactionSchema = new Schema<ITransaction>(
 
     status: {
       type: String,
-      enum: ["pending", "approved", "failed"],
+      enum: ["pending", "approved", "failed", "refunded", "chargedback"],
       default: "pending",
       index: true,
     },
 
     reversedAt: { type: Date },
     creditedAt: { type: Date },
+    refundedAt: { type: Date },
+    refundReason: { type: String, trim: true, maxlength: 500 },
+    refundedBy: { type: Schema.Types.ObjectId, ref: "User" },
+    chargedbackAt: { type: Date },
+    chargebackReason: { type: String, trim: true, maxlength: 500 },
+    chargedbackBy: { type: Schema.Types.ObjectId, ref: "User" },
+    partialCancellations: [
+      {
+        amount: { type: Number, required: true },
+        reason: { type: String, trim: true, maxlength: 500, required: true },
+        recordedBy: { type: Schema.Types.ObjectId, ref: "User", required: true },
+        recordedAt: { type: Date, default: Date.now },
+      },
+    ],
 
     mode: {
       type: String,

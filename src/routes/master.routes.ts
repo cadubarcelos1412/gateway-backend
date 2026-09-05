@@ -12,8 +12,20 @@ import {
   updateDefaultFees,
   listAllSplitRules,
   reconcileZendryPix,
+  refundTransaction,
+  chargebackTransaction,
+  partialCancelTransaction,
+  listSellerWebhookEndpointsAsMaster,
+  createSellerWebhookEndpointAsMaster,
+  updateSellerWebhookEndpointAsMaster,
+  deleteSellerWebhookEndpointAsMaster,
+  listPlatformWebhookEndpointsHandler,
+  createPlatformWebhookEndpointHandler,
+  updatePlatformWebhookEndpointHandler,
+  deletePlatformWebhookEndpointHandler,
   requireMasterMiddleware,
 } from "../controllers/master.controller";
+import { sensitiveActionRateLimit } from "../middleware/authRateLimit";
 import { authRateLimit } from "../middleware/authRateLimit";
 
 const router = Router();
@@ -86,5 +98,40 @@ router.get("/split-rules", listAllSplitRules);
  * zendryReconciliation.service.ts). Roda sozinho a cada 10min também.
  */
 router.post("/reconcile-zendry-pix", reconcileZendryPix);
+
+/**
+ * 💸 POST /api/master/transactions/:id/refund | /chargeback | /partial-cancel
+ * Registro MANUAL de reembolso/chargeback/cancelamento parcial — reverte o
+ * ledger/wallet da PyxGate e dispara webhook pro seller. Não chama nenhuma
+ * API de adquirente (ver services/paymentReversal.service.ts). Rate-limit
+ * de ação sensível por ser reversão financeira.
+ */
+router.post("/transactions/:id/refund", requireMasterMiddleware, sensitiveActionRateLimit, refundTransaction);
+router.post("/transactions/:id/chargeback", requireMasterMiddleware, sensitiveActionRateLimit, chargebackTransaction);
+router.post(
+  "/transactions/:id/partial-cancel",
+  requireMasterMiddleware,
+  sensitiveActionRateLimit,
+  partialCancelTransaction
+);
+
+/**
+ * 🔔 Webhook do seller — ferramenta de suporte, master vê/edita o webhook
+ * de qualquer seller específico (mesma lógica de /developers/webhook-endpoints,
+ * só que `:id` vem da URL em vez do JWT do próprio seller).
+ */
+router.get("/sellers/:id/webhook-endpoints", requireMasterMiddleware, listSellerWebhookEndpointsAsMaster);
+router.post("/sellers/:id/webhook-endpoints", requireMasterMiddleware, createSellerWebhookEndpointAsMaster);
+router.patch("/sellers/:id/webhook-endpoints/:endpointId", requireMasterMiddleware, updateSellerWebhookEndpointAsMaster);
+router.delete("/sellers/:id/webhook-endpoints/:endpointId", requireMasterMiddleware, deleteSellerWebhookEndpointAsMaster);
+
+/**
+ * 🌐 Webhooks de PLATAFORMA — próprios do master, eventos platform.* (ver
+ * models/webhookEndpoint.model.ts).
+ */
+router.get("/webhook-endpoints", requireMasterMiddleware, listPlatformWebhookEndpointsHandler);
+router.post("/webhook-endpoints", requireMasterMiddleware, createPlatformWebhookEndpointHandler);
+router.patch("/webhook-endpoints/:id", requireMasterMiddleware, updatePlatformWebhookEndpointHandler);
+router.delete("/webhook-endpoints/:id", requireMasterMiddleware, deletePlatformWebhookEndpointHandler);
 
 export default router;

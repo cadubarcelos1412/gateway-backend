@@ -12,6 +12,7 @@ import { round2 } from "./ledger/helpers";
 import { getQuote } from "../lib/sttart/crypto";
 import { DEFAULT_FEE_TABLE } from "../models/feeTable.types";
 import { releaseMaturedBalance } from "./wallet.service";
+import { dispatchPlatformWebhookEvent } from "./webhook.service";
 
 /**
  * 🌐 Wire internacional (SWIFT) via Sttart — serviço PRÓPRIO, separado de
@@ -224,6 +225,15 @@ export class WireCashoutService {
         kycStatus: seller.kycStatus,
         flags: [],
         description: `Pedido de wire internacional criado (teto R$${maxBrlAmount.toFixed(2)}, ${input.currency} ${input.foreignAmount}).`,
+      });
+
+      void dispatchPlatformWebhookEvent("platform.wire_requested", {
+        cashoutId: String(cashout._id),
+        sellerId: String(seller._id),
+        sellerName: seller.name,
+        maxBrlAmount,
+        currency: input.currency,
+        foreignAmount: input.foreignAmount,
       });
 
       return cashout;

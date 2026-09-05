@@ -10,20 +10,14 @@ function signPayload(secret: string, timestamp: number, rawBody: string): string
   return crypto.createHmac("sha256", secret).update(`${timestamp}.${rawBody}`).digest("hex");
 }
 
-/**
- * Dispara um evento de webhook para todos os endpoints ativos do merchant
- * inscritos nesse tipo de evento (ou em "*"). Fire-and-forget — nunca deve
- * bloquear/derrubar o fluxo que a chamou (criação de pagamento, mudança de
- * status via webhook de adquirente, etc).
- */
-export async function dispatchWebhookEvent(
-  merchantId: string,
+async function dispatchToEndpoints(
+  query: Record<string, unknown>,
   type: string,
   dataObject: Record<string, unknown>
 ): Promise<void> {
   try {
     const endpoints = await WebhookEndpoint.find({
-      merchantId,
+      ...query,
       active: true,
       events: { $in: [type, "*"] },
     });
@@ -45,6 +39,29 @@ export async function dispatchWebhookEvent(
   } catch (err) {
     console.error("⚠️ Falha ao despachar evento de webhook:", err);
   }
+}
+
+/**
+ * Dispara um evento de webhook para todos os endpoints ativos do merchant
+ * (scope "seller") inscritos nesse tipo de evento (ou em "*"). Fire-and-forget
+ * — nunca deve bloquear/derrubar o fluxo que a chamou (criação de pagamento,
+ * mudança de status via webhook de adquirente, etc).
+ */
+export async function dispatchWebhookEvent(
+  merchantId: string,
+  type: string,
+  dataObject: Record<string, unknown>
+): Promise<void> {
+  return dispatchToEndpoints({ merchantId }, type, dataObject);
+}
+
+/**
+ * Igual a dispatchWebhookEvent, mas para endpoints de PLATAFORMA
+ * (scope "platform", sem merchantId) — só master cadastra. Ver
+ * models/webhookEndpoint.model.ts (PLATFORM_EVENT_TYPES).
+ */
+export async function dispatchPlatformWebhookEvent(type: string, dataObject: Record<string, unknown>): Promise<void> {
+  return dispatchToEndpoints({ scope: "platform" }, type, dataObject);
 }
 
 async function deliverWithRetry(

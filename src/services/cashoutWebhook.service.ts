@@ -1,8 +1,10 @@
 import mongoose, { Types } from "mongoose";
 import CashoutRequest from "../models/cashoutRequest.model";
+import { Seller } from "../models/seller.model";
 import { postLedgerEntries } from "./ledger/ledger.service";
 import { TransactionAuditService } from "./transactionAudit.service";
 import { round } from "../utils/fees";
+import { dispatchWebhookEvent } from "./webhook.service";
 
 export class CashoutWebhookService {
   static async processBankWebhook(event: any) {
@@ -54,6 +56,17 @@ export class CashoutWebhookService {
       });
 
       await session.commitTransaction();
+
+      const seller = await Seller.findOne({ userId: cashout.userId });
+      if (seller) {
+        void dispatchWebhookEvent(String(seller._id), "withdraw.completed", {
+          id: String(cashout._id),
+          object: "withdraw",
+          amount: Math.round(cashout.amount * 100),
+          currency: "BRL",
+          status: cashout.status,
+        });
+      }
     } catch (err) {
       await session.abortTransaction();
       throw err;
