@@ -19,12 +19,14 @@ export function mapZendryStatus(rawStatus: string | undefined | null): ZendryVer
   return "pending";
 }
 
-// Taxa de cartão por número de parcelas — tabela real de adquirente (varia
-// por conta/negociação; ajuste os valores pros seus quando migrar). Índice 0
-// = à vista (1x). NÃO é markup fixo — a taxa sobe conforme a parcela.
+// Taxa de cartão por número de parcelas — custo real que a Zendry cobra da
+// PyxGate (tabela atualizada em 2026-09-05, confirmada pelo produto direto
+// com a Zendry, agora até 21x). Índice 0 = à vista (1x). NÃO é markup
+// fixo — a taxa sobe conforme a parcela.
 export const CARD_INSTALLMENT_RATES: number[] = [
-  0.0685, 0.0815, 0.0884, 0.0954, 0.1024, 0.1095, 0.1186,
-  0.1259, 0.1331, 0.1405, 0.1479, 0.1554, 0.1629, 0.1705,
+  0.0784, 0.0894, 0.0963, 0.1033, 0.1103, 0.1174, 0.1281,
+  0.1354, 0.1426, 0.1500, 0.1574, 0.1649, 0.1774, 0.1850,
+  0.1927, 0.2005, 0.2083, 0.2162, 0.2242, 0.2322, 0.2403,
 ];
 
 export const MAX_CARD_INSTALLMENTS = CARD_INSTALLMENT_RATES.length;
