@@ -467,7 +467,13 @@ components:
 
     Customer:
       type: object
-      required: [name, email, document]
+      required: [name]
+      description: |
+        `email` e `document` são obrigatórios para `payment_method: card`.
+        Para `payment_method: pix`, informe `email` + `document`, OU `phone`
+        (Pix só com telefone exige a conta autorizada pela PYX Gate — fale
+        com o suporte; sem essa liberação, `phone` sozinho retorna
+        `pix_phone_only_not_authorized`).
       properties:
         name: { type: string }
         email: { type: string, format: email }

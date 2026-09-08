@@ -27,7 +27,15 @@ interface SttartDynamicPixResponse {
 export interface CreateDynamicPixInput {
   amountBRL: number;
   payerName: string;
-  payerDocument: string;
+  /**
+   * Opcional (Pix "só telefone", ver TransactionService.createTransactionCore).
+   * ⚠️ Não confirmado ao vivo ainda: a BR Code do Bacen permite `devedor` sem
+   * CPF/CNPJ numa cobrança dinâmica, e a Sttart não documenta o campo como
+   * obrigatório — mas essa integração nunca testou omitir `debtor.cpf/cnpj`
+   * com dinheiro real. Validar com uma cobrança de valor baixo antes de
+   * confiar nisso em produção (mesmo cuidado já aplicado ao resto da Sttart).
+   */
+  payerDocument?: string;
   externalReference: string;
   expirationSeconds: number;
 }
@@ -53,14 +61,18 @@ async function emvToQrCodeBase64(emv: string): Promise<string> {
 }
 
 export async function createDynamicPix(input: CreateDynamicPixInput): Promise<CreateDynamicPixResult> {
-  const isCnpj = input.payerDocument.replace(/\D/g, "").length > 11;
+  const documentField = input.payerDocument
+    ? input.payerDocument.replace(/\D/g, "").length > 11
+      ? { cnpj: input.payerDocument }
+      : { cpf: input.payerDocument }
+    : {};
 
   const result = await sttartFetch<SttartDynamicPixResponse>("/v1/api/cash-in/pix/dynamic", {
     method: "POST",
     body: {
       debtor: {
         name: input.payerName,
-        ...(isCnpj ? { cnpj: input.payerDocument } : { cpf: input.payerDocument }),
+        ...documentField,
       },
       amount: { original: input.amountBRL, changeType: 0 },
       calendar: { expiration: input.expirationSeconds },

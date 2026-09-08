@@ -116,6 +116,11 @@ export interface ISeller extends Document {
    * wireCashout.service.ts). Desligado por padrão — operação sensível (câmbio, compliance),
    * liberada seller a seller pelo master, mesmo padrão de autoWithdrawEnabled. */
   wireEnabled: boolean;
+
+  /** Libera cobrança Pix com só nome+telefone do comprador (sem exigir email/document) —
+   * reduz KYC do comprador, então fica desligado por padrão e só liga seller a seller pelo
+   * master, mesmo padrão de autoWithdrawEnabled/wireEnabled. Ver TransactionService.createTransactionCore. */
+  pixPhoneOnlyEnabled: boolean;
   /** Tetos opcionais em BRL pra wire — nenhum configurável por UI ainda (sem tela pra isso),
    * só a estrutura pronta pra quando for preciso usar. Ausente/undefined = sem limite. */
   wireLimits?: {
@@ -258,6 +263,7 @@ const SellerSchema = new Schema<ISeller>(
 
     autoWithdrawEnabled: { type: Boolean, default: false },
     wireEnabled: { type: Boolean, default: false },
+    pixPhoneOnlyEnabled: { type: Boolean, default: false },
     wireLimits: {
       perTransaction: { type: Number },
       daily: { type: Number },

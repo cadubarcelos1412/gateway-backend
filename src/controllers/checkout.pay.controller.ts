@@ -116,8 +116,23 @@ export const payCheckout: RequestHandler = async (req, res) => {
       metadata?: Record<string, unknown>;
     };
 
-    if (!customer?.name || !customer?.email || !customer?.document) {
-      res.status(400).json({ status: false, msg: "Nome, e-mail e documento do comprador são obrigatórios." });
+    if (!customer?.name) {
+      res.status(400).json({ status: false, msg: "Nome do comprador é obrigatório." });
+      return;
+    }
+
+    // 📱 Pix aceita telefone no lugar de email+document (sujeito à
+    // autorização da conta do seller, ver TransactionService.createTransactionCore).
+    // Cartão continua exigindo email+document sempre.
+    const hasFullCustomerData = !!customer.email && !!customer.document;
+    if (paymentMethod === "pix" ? !customer.phone && !hasFullCustomerData : !hasFullCustomerData) {
+      res.status(400).json({
+        status: false,
+        msg:
+          paymentMethod === "pix"
+            ? "Telefone do comprador é obrigatório (ou e-mail e documento)."
+            : "E-mail e documento do comprador são obrigatórios.",
+      });
       return;
     }
 
@@ -178,7 +193,7 @@ export const payCheckout: RequestHandler = async (req, res) => {
       return;
     }
 
-    const document = customer.document.replace(/\D/g, "");
+    const document = customer.document ? customer.document.replace(/\D/g, "") : undefined;
 
     // 🔁 Idempotência: absorve duplo clique/reload no passo de revisão (janela de 2min)
     const idempotencyKey = crypto

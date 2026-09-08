@@ -447,6 +447,49 @@ export const toggleWireEnabled = async (req: Request, res: Response): Promise<vo
   }
 };
 
+/**
+ * 📱 Libera/bloqueia cobrança Pix com só nome+telefone do comprador (sem
+ * exigir email/document) para um seller — apenas master. Desligado por
+ * padrão (ver seller.model.ts): reduz KYC do comprador, liberado seller a
+ * seller. Ver TransactionService.createTransactionCore.
+ */
+export const togglePixPhoneOnly = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const user = await getUserFromToken(req.headers.authorization);
+    if (!user || user.role !== "master") {
+      res.status(403).json({ status: false, msg: "Acesso negado. Apenas master pode alterar isso." });
+      return;
+    }
+
+    const { id } = req.params;
+    const { enabled } = req.body;
+
+    if (!Types.ObjectId.isValid(id)) {
+      res.status(400).json({ status: false, msg: "ID de seller inválido." });
+      return;
+    }
+    if (typeof enabled !== "boolean") {
+      res.status(400).json({ status: false, msg: "Campo 'enabled' deve ser true ou false." });
+      return;
+    }
+
+    const seller = await Seller.findByIdAndUpdate(id, { pixPhoneOnlyEnabled: enabled }, { new: true }).lean();
+    if (!seller) {
+      res.status(404).json({ status: false, msg: "Seller não encontrado." });
+      return;
+    }
+
+    res.status(200).json({
+      status: true,
+      msg: `✅ Pix só com telefone ${enabled ? "liberado" : "bloqueado"}.`,
+      seller,
+    });
+  } catch (error) {
+    console.error("❌ Erro em togglePixPhoneOnly:", error);
+    res.status(500).json({ status: false, msg: "Erro interno ao atualizar Pix só com telefone." });
+  }
+};
+
 const ACQUIRER_CAPABILITIES: AcquirerCapability[] = ["pix", "card", "swap"];
 
 /**

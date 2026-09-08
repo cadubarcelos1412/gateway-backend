@@ -16,10 +16,12 @@ export const transactionSchema = z
 
     customer: z.object({
       name: z.string().min(3, "O nome do cliente é obrigatório."),
-      email: z.string().email("E-mail inválido."),
+      email: z.string().email("E-mail inválido.").optional(),
       document: z
         .string()
-        .regex(/^\d{11}$|^\d{14}$/, "Documento deve ser CPF (11 dígitos) ou CNPJ (14 dígitos)."),
+        .regex(/^\d{11}$|^\d{14}$/, "Documento deve ser CPF (11 dígitos) ou CNPJ (14 dígitos).")
+        .optional(),
+      phone: z.string().optional(),
     }),
 
     // 💳 Dados de cartão — obrigatórios quando method === "credit_card" e a
@@ -45,4 +47,18 @@ export const transactionSchema = z
   .refine(
     (data) => data.method !== "credit_card" || !!data.threedsData,
     { message: "threedsData é obrigatório para method 'credit_card'.", path: ["threedsData"] }
+  )
+  // 📱 Pix aceita telefone no lugar de email+document (sujeito à autorização
+  // da conta, ver TransactionService.createTransactionCore). Cartão/boleto
+  // continuam exigindo email+document sempre.
+  .refine(
+    (data) =>
+      data.method === "pix"
+        ? !!data.customer.phone || (!!data.customer.email && !!data.customer.document)
+        : !!data.customer.email && !!data.customer.document,
+    {
+      message:
+        "Para Pix, informe customer.phone, ou customer.email e customer.document. Para os demais métodos, email e document são sempre obrigatórios.",
+      path: ["customer"],
+    }
   );

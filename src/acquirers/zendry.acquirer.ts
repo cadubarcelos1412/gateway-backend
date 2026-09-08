@@ -105,6 +105,12 @@ export class ZendryAcquirer implements IAcquirer {
     if (!payload.card) {
       throw new Error("Dados de cartão ausentes para pagamento via Zendry.");
     }
+    // customer.document é opcional no DTO (Pix pode dispensar), mas cartão
+    // sempre exige — já garantido em TransactionService.createTransactionCore,
+    // este guard só documenta/protege a fronteira caso algum caller futuro pule essa validação.
+    if (!payload.customer.document) {
+      throw new Error("Documento do titular do cartão é obrigatório.");
+    }
     if (payload.card.installments < 1 || payload.card.installments > MAX_CARD_INSTALLMENTS) {
       throw new Error(`Número de parcelas inválido (máximo ${MAX_CARD_INSTALLMENTS}x).`);
     }

@@ -45,8 +45,8 @@ export type CreateTransactionDTO = {
 
   customer: {
     name: string;
-    email: string;
-    document: string;
+    email?: string;
+    document?: string;
     phone?: string;
     ip?: string;
   };

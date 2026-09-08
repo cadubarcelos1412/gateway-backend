@@ -8,6 +8,7 @@ import {
   toggleSellerStatus,
   toggleAutoWithdraw,
   toggleWireEnabled,
+  togglePixPhoneOnly,
   getSellerAcquirerConfig,
   updateSellerAcquirerConfig,
   getSellerFees,
@@ -119,6 +120,13 @@ router.patch("/:id/toggle-auto-withdraw", toggleAutoWithdraw);
  * @access  Master
  */
 router.patch("/:id/wire-enabled", toggleWireEnabled);
+
+/**
+ * @route   PATCH /api/sellers/:id/pix-phone-only
+ * @desc    Libera/bloqueia cobrança Pix com só nome+telefone (sem email/document) – Apenas master
+ * @access  Master
+ */
+router.patch("/:id/pix-phone-only", togglePixPhoneOnly);
 
 /**
  * @route   GET /api/sellers/:id/acquirer-config

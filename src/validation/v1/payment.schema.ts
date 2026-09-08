@@ -15,10 +15,11 @@ export const publicPaymentSchema = z
 
     customer: z.object({
       name: z.string().min(3, "customer.name é obrigatório."),
-      email: z.string().email("customer.email inválido."),
+      email: z.string().email("customer.email inválido.").optional(),
       document: z
         .string()
-        .regex(/^\d{11}$|^\d{14}$/, "customer.document deve ser CPF (11 dígitos) ou CNPJ (14 dígitos)."),
+        .regex(/^\d{11}$|^\d{14}$/, "customer.document deve ser CPF (11 dígitos) ou CNPJ (14 dígitos).")
+        .optional(),
       phone: z.string().optional(),
     }),
 
@@ -54,6 +55,21 @@ export const publicPaymentSchema = z
   .refine((data) => data.payment_method === "card" || !data.card, {
     message: "'card' só pode ser enviado quando payment_method é 'card'. Confira o valor de payment_method no seu integração.",
     path: ["payment_method"],
-  });
+  })
+  // 📱 Pix aceita telefone no lugar de email+document (desde que a conta do
+  // seller esteja autorizada para isso — ver TransactionService.createTransactionCore).
+  // Cartão continua exigindo email+document sempre: são dados usados pra
+  // antifraude/3DS na adquirente, não é só cadastro do comprador.
+  .refine(
+    (data) =>
+      data.payment_method === "pix"
+        ? !!data.customer.phone || (!!data.customer.email && !!data.customer.document)
+        : !!data.customer.email && !!data.customer.document,
+    {
+      message:
+        "Para Pix, informe customer.phone, ou customer.email e customer.document. Para cartão, customer.email e customer.document são sempre obrigatórios.",
+      path: ["customer"],
+    }
+  );
 
 export type PublicPaymentInput = z.infer<typeof publicPaymentSchema>;

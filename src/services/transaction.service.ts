@@ -34,8 +34,8 @@ export interface CreateTransactionInput {
   idempotencyKey?: string | null;
   customer: {
     name: string;
-    email: string;
-    document: string;
+    email?: string;
+    document?: string;
     phone?: string;
   };
   card?: CreateTransactionDTO["card"];
@@ -109,7 +109,35 @@ export class TransactionService {
       }
     }
 
-    if (customer.document === seller.documentNumber) {
+    // 📱 Pix sem email/document (só nome+telefone) exige autorização
+    // explícita do master pra essa conta (ver seller.model.ts,
+    // pixPhoneOnlyEnabled) — reduz o KYC do comprador, não é liberado por
+    // padrão. API pública e checkout já aceitam o payload sem esses campos
+    // (ver payment.schema.ts / checkout.pay.controller.ts), mas é AQUI, no
+    // núcleo compartilhado pelos três caminhos (API, checkout, dashboard),
+    // que a permissão de fato é checada — sem isso qualquer seller
+    // conseguiria pular o KYC do comprador só mandando o payload certo.
+    const hasFullCustomerData = !!customer.email && !!customer.document;
+    if (method === "pix" && !hasFullCustomerData) {
+      if (!customer.phone) {
+        const err = new Error("Informe customer.phone, ou customer.email e customer.document.");
+        (err as Error & { code?: string }).code = "customer_data_incomplete";
+        throw err;
+      }
+      if (!seller.pixPhoneOnlyEnabled) {
+        const err = new Error(
+          "Esta conta ainda não está autorizada a cobrar Pix só com telefone (sem e-mail/documento). Fale com o suporte da PYX Gate para liberar, ou envie customer.email e customer.document."
+        );
+        (err as Error & { code?: string }).code = "pix_phone_only_not_authorized";
+        throw err;
+      }
+    } else if (method !== "pix" && !hasFullCustomerData) {
+      const err = new Error("customer.email e customer.document são obrigatórios para este método de pagamento.");
+      (err as Error & { code?: string }).code = "customer_data_incomplete";
+      throw err;
+    }
+
+    if (customer.document && customer.document === seller.documentNumber) {
       // code anexado pro caller (API pública /v1/payments) conseguir mapear
       // pra um código de erro específico em vez do genérico
       // "payment_creation_failed" — permite integradores tratarem esse caso

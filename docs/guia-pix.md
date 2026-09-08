@@ -14,6 +14,14 @@ Copie a chave `sk_test_...` (só aparece uma vez).
 > adquirente, não documentado oficialmente por ela, então pode mudar sem
 > aviso prévio.
 
+> **Cobrar Pix só com telefone (sem email/documento):** por padrão,
+> `customer.email` e `customer.document` são obrigatórios. Se a sua oferta
+> só coleta telefone (ex.: QR code dinâmico numa landing page, sem
+> formulário completo), a PYX Gate pode liberar `customer.phone` como
+> alternativa pra sua conta — fale com o suporte para ativar. Sem essa
+> liberação, enviar só `phone` retorna `pix_phone_only_not_authorized`. Veja
+> [erros.md](./erros.md).
+
 ## 2. Crie a cobrança
 
 ```bash
@@ -50,6 +58,18 @@ const res = await fetch("http://localhost:3000/v1/payments", {
   }),
 });
 const payment = await res.json();
+```
+
+Com a conta autorizada pra Pix só com telefone (ver nota acima), o mesmo
+`customer` pode vir só com `name` e `phone`:
+
+```json
+{
+  "amount": 1990,
+  "payment_method": "pix",
+  "customer": { "name": "Maria Compradora", "phone": "11999998888" },
+  "metadata": { "order_id": "1001" }
+}
 ```
 
 Resposta (`201`):
