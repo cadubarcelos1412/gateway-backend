@@ -45,7 +45,7 @@ estiver na máquina, o MCP já é registrado automaticamente.
 O servidor é hospedado — dá pra apontar direto:
 
 ```bash
-claude mcp add --transport http pyxgate https://mcp.pyxgate.com/mcp
+claude mcp add --transport http pyxgate https://pyxgate-mcp.onrender.com/mcp
 ```
 
 Na primeira chamada o cliente abre o navegador na tela de autorização da
@@ -190,7 +190,7 @@ comprometer o MCP não compromete o gateway.
 cd mcp
 npm install
 PYXGATE_API_URL=https://pyxgate-api.onrender.com \
-MCP_PUBLIC_URL=https://mcp.pyxgate.com/mcp \
+MCP_PUBLIC_URL=https://pyxgate-mcp.onrender.com/mcp \
 PORT=3333 npm start
 ```
 

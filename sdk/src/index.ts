@@ -120,7 +120,7 @@ export class PyxGateError extends Error {
 export interface PyxGateOptions {
   /** Chave `sk_live_...`/`sk_test_...` ou um access token OAuth. */
   apiKey: string;
-  /** Padrão: https://pyxgate-api.onrender.com */
+  /** Padrão: `PYXGATE_API_URL` do ambiente, ou a produção da PYX Gate. */
   baseUrl?: string;
   /** Timeout por requisição, em ms. Padrão 30000. */
   timeoutMs?: number;
@@ -129,7 +129,16 @@ export interface PyxGateOptions {
   fetch?: typeof globalThis.fetch;
 }
 
+/**
+ * URL da API. O padrão é a produção atual; `PYXGATE_API_URL` sobrescreve sem
+ * precisar republicar o pacote — importa porque o domínio ainda vai mudar
+ * (hoje é o do provedor de hospedagem, não um domínio próprio).
+ */
 const DEFAULT_BASE_URL = "https://pyxgate-api.onrender.com";
+
+function baseUrlPadrao(): string {
+  return (typeof process !== "undefined" && process.env?.PYXGATE_API_URL) || DEFAULT_BASE_URL;
+}
 
 export class PyxGate {
   readonly #apiKey: string;
@@ -143,7 +152,7 @@ export class PyxGate {
     if (!opts?.apiKey) throw new Error("PyxGate: apiKey é obrigatória.");
 
     this.#apiKey = opts.apiKey;
-    this.#baseUrl = (opts.baseUrl || DEFAULT_BASE_URL).replace(/\/$/, "");
+    this.#baseUrl = (opts.baseUrl || baseUrlPadrao()).replace(/\/$/, "");
     this.#timeoutMs = opts.timeoutMs ?? 30_000;
     this.#maxRetries = opts.maxRetries ?? 2;
     this.#fetch = opts.fetch ?? globalThis.fetch;

@@ -3,7 +3,7 @@
 // 🚚 Canal de instalação próprio — mesmo padrão que Anthropic, OpenAI e
 // Docker usam pros CLIs deles:
 //
-//     curl -fsSL https://api.pyxgate.com/install.sh | sh
+//     curl -fsSL <BASE_URL>/install.sh | sh
 //
 // Sem registry público: os tarballs são servidos por esta API e o instalador
 // confere o SHA-256 do manifesto ANTES de instalar. Sem essa verificação um
@@ -21,7 +21,7 @@ const manifestPath = path.join(distPath, "manifest.json");
 
 interface Manifest {
   gerado_em: string;
-  pacotes: Record<string, { nome: string; versao: string; descricao: string; arquivo: string; tamanho: number; sha256: string }>;
+  pacotes: Record<string, { nome: string; versao: string; arquivo: string; sha256: string }>;
 }
 
 function lerManifest(): Manifest | null {
@@ -85,7 +85,6 @@ set -eu
 
 BASE="${base}"
 MCP_URL="${mcp}"
-PACOTE="\${PYXGATE_PACOTE:-mcp}"   # mcp | sdk
 
 vermelho() { printf '\\033[31m%s\\033[0m\\n' "$1" >&2; }
 verde()    { printf '\\033[32m%s\\033[0m\\n' "$1"; }
@@ -119,13 +118,12 @@ ler "$BASE/dist/manifest.json" > "$TMP/manifest.json" || erro "não consegui ler
 
 eval "$(node -e '
   const m = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
-  const p = m.pacotes[process.argv[2]];
-  if (!p) { console.error("pacote desconhecido"); process.exit(1); }
+  const p = m.pacotes.mcp;
   console.log("ARQUIVO=" + p.arquivo);
   console.log("SHA=" + p.sha256);
   console.log("VERSAO=" + p.versao);
   console.log("NOME=" + p.nome);
-' "$TMP/manifest.json" "$PACOTE")"
+' "$TMP/manifest.json")"
 
 info "baixando $NOME@$VERSAO"
 baixar "$BASE/dist/$ARQUIVO" "$TMP/$ARQUIVO" || erro "falha ao baixar $ARQUIVO"
@@ -153,7 +151,7 @@ npm install -g "$TMP/$ARQUIVO" >/dev/null 2>&1 || erro "npm install falhou. Se f
 verde "  ✓ $NOME@$VERSAO instalado"
 
 # Registro automático no Claude Code, se estiver por perto.
-if [ "$PACOTE" = "mcp" ] && command -v claude >/dev/null 2>&1; then
+if command -v claude >/dev/null 2>&1; then
   printf '\\n'
   info "registrando o MCP no Claude Code..."
   if claude mcp add --transport http pyxgate "$MCP_URL" >/dev/null 2>&1; then
@@ -192,7 +190,6 @@ $ErrorActionPreference = 'Stop'
 
 $Base    = '${base}'
 $McpUrl  = '${mcp}'
-$Pacote  = if ($env:PYXGATE_PACOTE) { $env:PYXGATE_PACOTE } else { 'mcp' }
 
 function Erro($m) { Write-Host "erro: $m" -ForegroundColor Red; exit 1 }
 function Info($m) { Write-Host "  $m" }
@@ -214,8 +211,7 @@ New-Item -ItemType Directory -Path $tmp -Force | Out-Null
 try {
   Info 'buscando manifesto...'
   $manifest = Invoke-RestMethod -Uri "$Base/dist/manifest.json"
-  $info = $manifest.pacotes.$Pacote
-  if (-not $info) { Erro "pacote desconhecido: $Pacote" }
+  $info = $manifest.pacotes.mcp
 
   Info "baixando $($info.nome)@$($info.versao)"
   $arquivo = Join-Path $tmp $info.arquivo
@@ -233,7 +229,7 @@ try {
 
   Ok "OK $($info.nome)@$($info.versao) instalado"
 
-  if ($Pacote -eq 'mcp' -and (Get-Command claude -ErrorAction SilentlyContinue)) {
+  if (Get-Command claude -ErrorAction SilentlyContinue) {
     Write-Host ''
     Info 'registrando o MCP no Claude Code...'
     claude mcp add --transport http pyxgate $McpUrl 2>&1 | Out-Null

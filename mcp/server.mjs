@@ -25,13 +25,6 @@ const RESOURCE = (process.env.MCP_PUBLIC_URL || `http://localhost:${PORT}/mcp`).
 /* 🌐 Cliente da API                                                          */
 /* -------------------------------------------------------------------------- */
 
-class PyxError extends Error {
-  constructor(message, status) {
-    super(message);
-    this.status = status;
-  }
-}
-
 function bearerFrom(req) {
   const h = req.headers.authorization;
   const token = h?.startsWith("Bearer ") ? h.slice(7).trim() : undefined;
@@ -39,7 +32,7 @@ function bearerFrom(req) {
 }
 
 async function pyx(token, path, { method = "GET", body, idempotencyKey, query } = {}) {
-  if (!token) throw new PyxError("Não autorizado: conecte a aplicação à sua conta PYX Gate.", 401);
+  if (!token) throw new Error("Não autorizado: conecte a aplicação à sua conta PYX Gate.");
 
   const url = new URL(`${API_URL}/v1${path}`);
   for (const [k, v] of Object.entries(query ?? {})) {
@@ -62,7 +55,7 @@ async function pyx(token, path, { method = "GET", body, idempotencyKey, query } 
     let msg = json?.error?.message || `HTTP ${res.status} em ${path}`;
     if (res.status === 401) msg = `${msg} — a autorização expirou ou foi revogada; reconecte a aplicação.`;
     if (code === "insufficient_scope") msg = `${msg} (autorize novamente marcando a permissão que falta).`;
-    throw new PyxError(msg, res.status);
+    throw new Error(msg);
   }
   return json;
 }
@@ -146,7 +139,7 @@ function buildServer(req) {
           metadata: a.pedido_id ? { order_id: a.pedido_id } : undefined,
         },
       });
-      if (!p.qr_code) throw new PyxError(`Cobrança ${p.id} criada sem QR Code (status ${p.status}).`, 502);
+      if (!p.qr_code) throw new Error(`Cobrança ${p.id} criada sem QR Code (status ${p.status}).`);
       return {
         content: [
           {

@@ -19,7 +19,6 @@ export interface IOAuthGrant extends Document {
   hashedSecret: string;
   clientId: string;
   merchantId: Types.ObjectId;
-  userId: Types.ObjectId;
   mode: ApiKeyMode;
   scopes: string[];
   /** Só para kind "code": PKCE + redirect_uri, amarrados na emissão. */
@@ -39,7 +38,6 @@ const OAuthGrantSchema = new Schema<IOAuthGrant>(
     hashedSecret: { type: String, required: true, unique: true, index: true },
     clientId: { type: String, required: true, index: true },
     merchantId: { type: Schema.Types.ObjectId, ref: "Seller", required: true, index: true },
-    userId: { type: Schema.Types.ObjectId, ref: "User", required: true },
     mode: { type: String, enum: ["test", "live"], required: true },
     scopes: { type: [String], required: true },
     codeChallenge: { type: String },

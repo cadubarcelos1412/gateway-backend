@@ -2,6 +2,7 @@
 import crypto from "crypto";
 import jwt from "jsonwebtoken";
 import { ApiKeyMode } from "../models/apiKey.model";
+import { hashApiKey } from "./apiKeys";
 
 /**
  * 🔐 Tokens OAuth 2.1 da PYX Gate — assinados com HMAC-SHA256 (HS256)
@@ -49,7 +50,7 @@ export const DEFAULT_SCOPES: OAuthScope[] = ["account:read", "payments:read", "p
  */
 export const WRITE_SCOPES: OAuthScope[] = ["payments:write", "webhooks:write"];
 
-export interface OAuthAccessTokenClaims {
+interface OAuthAccessTokenClaims {
   /** ObjectId do Seller (merchant) dono do token. */
   sub: string;
   /** client_id da aplicação que recebeu o consentimento. */
@@ -58,8 +59,6 @@ export interface OAuthAccessTokenClaims {
   mode: ApiKeyMode;
   scope: string;
   aud: string;
-  iss?: string;
-  exp?: number;
 }
 
 export const ACCESS_TOKEN_TTL_SECONDS = 60 * 60; // 1h — refresh cobre o resto.
@@ -124,17 +123,12 @@ export function generateOpaqueSecret(bytes = 32): string {
   return crypto.randomBytes(bytes).toString("base64url");
 }
 
-export function hashSecret(value: string): string {
-  return crypto.createHash("sha256").update(value).digest("hex");
-}
-
-/** Comparação em tempo constante de dois hashes hex (mesmo padrão de apiKeys.ts). */
-export function timingSafeEqualHex(a: string, b: string): boolean {
-  const bufA = Buffer.from(a, "hex");
-  const bufB = Buffer.from(b, "hex");
-  if (bufA.length !== bufB.length) return false;
-  return crypto.timingSafeEqual(bufA, bufB);
-}
+/**
+ * SHA-256 hex — exatamente a mesma primitiva que as chaves sk_ já usavam.
+ * Reaproveitada em vez de reimplementada: um algoritmo de hash de credencial
+ * duplicado é um lugar a mais pra divergir.
+ */
+export const hashSecret = hashApiKey;
 
 /**
  * PKCE S256 (RFC 7636). "plain" não é aceito — OAuth 2.1 exige S256 pra

@@ -14,10 +14,9 @@ import { fileURLToPath } from "node:url";
 const raiz = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const destino = path.join(raiz, "public", "dist");
 
-const PACOTES = [
-  { dir: "mcp", nome: "@pyxgate/mcp", papel: "Servidor MCP — ferramentas de pagamento para agentes de IA" },
-  { dir: "sdk", nome: "@pyxgate/sdk", papel: "SDK TypeScript da API /v1" },
-];
+// O instalador só instala o MCP; o SDK entra no manifesto porque dá pra
+// consumir direto por URL (npm i <url do tarball>) sem registry público.
+const PACOTES = ["mcp", "sdk"];
 
 fs.rmSync(destino, { recursive: true, force: true });
 fs.mkdirSync(destino, { recursive: true });
@@ -25,7 +24,7 @@ fs.mkdirSync(destino, { recursive: true });
 const manifest = { gerado_em: new Date().toISOString(), pacotes: {} };
 
 for (const pacote of PACOTES) {
-  const cwd = path.join(raiz, pacote.dir);
+  const cwd = path.join(raiz, pacote);
   const pkg = JSON.parse(fs.readFileSync(path.join(cwd, "package.json"), "utf8"));
 
   // prepublishOnly do sdk roda o tsc — garante que dist/ está fresco.
@@ -34,19 +33,12 @@ for (const pacote of PACOTES) {
 
   const bytes = fs.readFileSync(origem);
   const sha256 = crypto.createHash("sha256").update(bytes).digest("hex");
-  const arquivo = `${pacote.dir}-${pkg.version}.tgz`;
+  const arquivo = `${pacote}-${pkg.version}.tgz`;
 
   fs.writeFileSync(path.join(destino, arquivo), bytes);
   fs.rmSync(origem);
 
-  manifest.pacotes[pacote.dir] = {
-    nome: pkg.name,
-    versao: pkg.version,
-    descricao: pacote.papel,
-    arquivo,
-    tamanho: bytes.length,
-    sha256,
-  };
+  manifest.pacotes[pacote] = { nome: pkg.name, versao: pkg.version, arquivo, sha256 };
 
   console.log(`✅ ${pkg.name}@${pkg.version} → ${arquivo} (${(bytes.length / 1024).toFixed(1)} KB)`);
   console.log(`   sha256: ${sha256}`);

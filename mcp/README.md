@@ -26,7 +26,7 @@ Authorization Server é o próprio gateway (`/oauth/*`).
 npm install
 
 PYXGATE_API_URL=https://pyxgate-api.onrender.com \
-MCP_PUBLIC_URL=https://mcp.pyxgate.com/mcp \
+MCP_PUBLIC_URL=https://pyxgate-mcp.onrender.com/mcp \
 PORT=3333 npm start
 ```
 

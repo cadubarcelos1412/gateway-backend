@@ -17,7 +17,6 @@ import {
   hashSecret,
   mintAccessToken,
   parseScopes,
-  timingSafeEqualHex,
   verifyPkceS256,
   allowedResources,
 } from "../utils/oauthTokens";
@@ -62,7 +61,7 @@ export const authorizationServerMetadata = (_req: Request, res: Response): void 
     response_types_supported: ["code"],
     grant_types_supported: ["authorization_code", "refresh_token"],
     code_challenge_methods_supported: ["S256"],
-    token_endpoint_auth_methods_supported: ["none", "client_secret_post"],
+    token_endpoint_auth_methods_supported: ["none"],
     service_documentation: `${base}/docs#mcp`,
   });
 };
@@ -88,7 +87,7 @@ export const protectedResourceMetadata = (_req: Request, res: Response): void =>
 /** POST /oauth/register */
 export const registerClient = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { client_name, redirect_uris, token_endpoint_auth_method, logo_uri, client_uri } = req.body ?? {};
+    const { client_name, redirect_uris } = req.body ?? {};
 
     if (!Array.isArray(redirect_uris) || redirect_uris.length === 0) {
       oauthError(res, 400, "invalid_redirect_uri", "redirect_uris é obrigatório e deve ser um array não vazio.");
@@ -114,26 +113,16 @@ export const registerClient = async (req: Request, res: Response): Promise<void>
       }
     }
 
-    const isPublic = token_endpoint_auth_method !== "client_secret_post";
     const clientId = `pyx_client_${generateOpaqueSecret(16)}`;
-    const clientSecret = isPublic ? undefined : generateOpaqueSecret(32);
+    const clientName = String(client_name || "Cliente MCP").slice(0, 120);
 
-    await OAuthClient.create({
-      clientId,
-      clientName: String(client_name || "Cliente MCP").slice(0, 120),
-      redirectUris: redirect_uris.map(String),
-      hashedClientSecret: clientSecret ? hashSecret(clientSecret) : undefined,
-      isPublic,
-      logoUri: logo_uri ? String(logo_uri) : undefined,
-      clientUri: client_uri ? String(client_uri) : undefined,
-    });
+    await OAuthClient.create({ clientId, clientName, redirectUris: redirect_uris.map(String) });
 
     res.status(201).json({
       client_id: clientId,
-      ...(clientSecret ? { client_secret: clientSecret } : {}),
-      client_name: String(client_name || "Cliente MCP").slice(0, 120),
+      client_name: clientName,
       redirect_uris,
-      token_endpoint_auth_method: isPublic ? "none" : "client_secret_post",
+      token_endpoint_auth_method: "none",
       grant_types: ["authorization_code", "refresh_token"],
       response_types: ["code"],
     });
@@ -284,7 +273,6 @@ export const decideAuthorize = async (req: Request, res: Response): Promise<void
       hashedSecret: hashSecret(code),
       clientId: params.clientId,
       merchantId: seller._id as Types.ObjectId,
-      userId: user._id as Types.ObjectId,
       mode,
       scopes: granted,
       codeChallenge: params.codeChallenge,
@@ -307,13 +295,13 @@ export const decideAuthorize = async (req: Request, res: Response): Promise<void
 /* 🎟️ Token                                                                  */
 /* -------------------------------------------------------------------------- */
 
-/** Confere client_secret quando o cliente é confidencial. */
-async function assertClient(clientId: string, clientSecret: unknown): Promise<boolean> {
-  const client = await OAuthClient.findOne({ clientId });
-  if (!client) return false;
-  if (client.isPublic) return true;
-  if (typeof clientSecret !== "string" || !client.hashedClientSecret) return false;
-  return timingSafeEqualHex(client.hashedClientSecret, hashSecret(clientSecret));
+/**
+ * Cliente público não tem segredo pra conferir: quem prova a posse do
+ * authorization code é o PKCE (code_verifier), não o client_secret. Aqui só
+ * confirmamos que o client_id existe — o grant depois é amarrado a ele.
+ */
+async function clienteExiste(clientId: string): Promise<boolean> {
+  return (await OAuthClient.exists({ clientId })) !== null;
 }
 
 /**
@@ -323,7 +311,6 @@ async function assertClient(clientId: string, clientSecret: unknown): Promise<bo
 async function issueTokenPair(grant: {
   clientId: string;
   merchantId: Types.ObjectId;
-  userId: Types.ObjectId;
   mode: ApiKeyMode;
   scopes: string[];
   resource: string;
@@ -334,7 +321,6 @@ async function issueTokenPair(grant: {
     hashedSecret: hashSecret(refresh),
     clientId: grant.clientId,
     merchantId: grant.merchantId,
-    userId: grant.userId,
     mode: grant.mode,
     scopes: grant.scopes,
     resource: grant.resource,
@@ -362,8 +348,8 @@ export const issueToken = async (req: Request, res: Response): Promise<void> => 
     const grantType = String(req.body.grant_type || "");
     const clientId = String(req.body.client_id || "");
 
-    if (!(await assertClient(clientId, req.body.client_secret))) {
-      oauthError(res, 401, "invalid_client", "client_id desconhecido ou client_secret inválido.");
+    if (!(await clienteExiste(clientId))) {
+      oauthError(res, 401, "invalid_client", "client_id desconhecido.");
       return;
     }
 

@@ -20,12 +20,11 @@ import {
   hashSecret,
   mintAccessToken,
   parseScopes,
-  timingSafeEqualHex,
   verifyAccessToken,
   verifyPkceS256,
 } from "./oauthTokens";
 
-const RESOURCE = "https://mcp.pyxgate.com/mcp";
+const RESOURCE = "https://recurso.exemplo.test/mcp";
 
 const mint = (over: Partial<Parameters<typeof mintAccessToken>[0]> = {}) =>
   mintAccessToken({
@@ -121,20 +120,12 @@ test("segredos opacos são únicos e guardados só como hash", () => {
   assert.notEqual(hashSecret(a), hashSecret(b));
 });
 
-test("timingSafeEqualHex: iguais true, diferentes false, tamanhos distintos não estouram", () => {
-  const h = hashSecret("qualquer");
-  assert.equal(timingSafeEqualHex(h, h), true);
-  assert.equal(timingSafeEqualHex(h, hashSecret("outro")), false);
-  assert.doesNotThrow(() => timingSafeEqualHex(h, "ab"));
-  assert.equal(timingSafeEqualHex(h, "ab"), false);
-});
-
 /* --------------------------- Recursos (RFC 8707) -------------------------- */
 
 test("allowedResources: CSV, trim e barra final normalizada", () => {
   const antes = process.env.MCP_RESOURCE_URL;
-  process.env.MCP_RESOURCE_URL = " https://mcp.pyxgate.com/mcp/ , https://outro.pyxgate.com/mcp ";
-  assert.deepEqual(allowedResources(), ["https://mcp.pyxgate.com/mcp", "https://outro.pyxgate.com/mcp"]);
+  process.env.MCP_RESOURCE_URL = " https://recurso.exemplo.test/mcp/ , https://outro.exemplo.test/mcp ";
+  assert.deepEqual(allowedResources(), ["https://recurso.exemplo.test/mcp", "https://outro.exemplo.test/mcp"]);
   process.env.MCP_RESOURCE_URL = antes;
 });
 
