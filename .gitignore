@@ -5,3 +5,6 @@
 # subprojetos publicados no npm (mcp/, sdk/) — mesmas regras, em qualquer nível
 node_modules/
 sdk/dist/
+
+# tarballs de npm pack
+*.tgz

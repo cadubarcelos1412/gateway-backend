@@ -146,8 +146,17 @@ export function verifyPkceS256(verifier: string, challenge: string): boolean {
   return computed.length === challenge.length && crypto.timingSafeEqual(Buffer.from(computed), Buffer.from(challenge));
 }
 
+/**
+ * Aceita "a b c", ["a","b"] ou ["a b", "c"] — um formulário HTML com campo
+ * repetido chega como array, e um valor só chega como string. Tratar só
+ * string fazia o pedido virar [] e cair silenciosamente no DEFAULT_SCOPES,
+ * o que tornava `webhooks:write` impossível de conceder (achado no E2E).
+ */
 export function parseScopes(raw: unknown): OAuthScope[] {
-  if (typeof raw !== "string" || !raw.trim()) return [];
-  const asked = raw.split(/[\s+]+/).filter(Boolean);
-  return OAUTH_SCOPES.filter((s) => asked.includes(s));
+  const partes = (Array.isArray(raw) ? raw : [raw])
+    .filter((v): v is string => typeof v === "string")
+    .flatMap((v) => v.split(/[\s+]+/))
+    .filter(Boolean);
+  if (partes.length === 0) return [];
+  return OAUTH_SCOPES.filter((s) => partes.includes(s));
 }

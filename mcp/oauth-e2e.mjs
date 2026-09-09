@@ -92,6 +92,10 @@ const consent = await fetch(meta.authorization_endpoint, {
   // de propósito: é o que o passo 7 usa pra provar o bloqueio por escopo.
   body: new URLSearchParams([
     ...Object.entries({ ...authParams, scope: undefined }).filter(([, v]) => v !== undefined),
+    // requested_scope = o conjunto pedido (campo oculto); scope repetido = os
+    // checkboxes marcados. Nomes diferentes de propósito: com o mesmo nome o
+    // POST vira array e o pedido inteiro era descartado (bug corrigido).
+    ["requested_scope", scope],
     ["email", EMAIL], ["password", PASSWORD], ["mode", "test"], ["decision", "allow"],
     ["scope", "account:read"], ["scope", "payments:read"], ["scope", "payments:write"], ["scope", "test:write"],
   ]),

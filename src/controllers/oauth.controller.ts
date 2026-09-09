@@ -204,7 +204,9 @@ async function validateAuthorizeParams(
     return fail("invalid_target", `Recurso '${resource}' não é reconhecido por este servidor.`);
   }
 
-  const asked = parseScopes(source.scope);
+  // GET traz "scope" na query; POST traz "requested_scope" no campo oculto
+  // (o "scope" do POST são os checkboxes marcados, lidos em decideAuthorize).
+  const asked = parseScopes(source.requested_scope ?? source.scope);
   return {
     clientId,
     redirectUri,
@@ -509,7 +511,9 @@ function consentPage(clientName: string, params: AuthorizeParams, error?: string
     ["code_challenge_method", "S256"],
     ["response_type", "code"],
     ["resource", params.resource],
-    ["scope", params.scopes.join(" ")],
+    // NÃO pode se chamar "scope": os checkboxes abaixo usam esse nome, e o
+    // POST chegaria como array misturando a string inteira com os itens.
+    ["requested_scope", params.scopes.join(" ")],
   ]
     .map(([k, v]) => `<input type="hidden" name="${esc(k)}" value="${esc(v)}" />`)
     .join("");

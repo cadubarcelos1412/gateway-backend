@@ -150,3 +150,18 @@ test("token vale para qualquer recurso da lista, e só para eles", () => {
 
   process.env.MCP_RESOURCE_URL = antes;
 });
+
+test("parseScopes aceita array — formulário com campo repetido (regressão)", () => {
+  // O POST do consentimento manda "scope" repetido (um por checkbox). Tratar
+  // só string devolvia [], caía no DEFAULT_SCOPES e tornava webhooks:write
+  // impossível de conceder. Pego pelo E2E, não pelos testes unitários.
+  assert.deepEqual(parseScopes(["payments:read", "webhooks:write"]), ["payments:read", "webhooks:write"]);
+  assert.deepEqual(parseScopes(["account:read payments:read", "webhooks:write"]), ["account:read", "payments:read", "webhooks:write"]);
+  assert.deepEqual(parseScopes([]), []);
+  assert.deepEqual(parseScopes(["nao:existe"]), []);
+});
+
+test("webhooks:write é concedível — não está fora do universo de escopos", () => {
+  assert.ok(parseScopes("webhooks:write").includes("webhooks:write"));
+  assert.equal(DEFAULT_SCOPES.includes("webhooks:write" as never), false, "mas segue fora do default, de propósito");
+});
