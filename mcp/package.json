@@ -1,0 +1,48 @@
+{
+  "name": "@pyxgate/mcp",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "server.mjs",
+  "scripts": {
+    "start": "node server.mjs",
+    "test": "node test.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "express": "^4.21.2",
+    "qrcode": "^1.5.4",
+    "zod": "^3.24.1"
+  },
+  "description": "Servidor MCP oficial da PYX Gate — cobrancas Pix, consulta de pagamentos e webhooks para agentes de IA.",
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "pix",
+    "pagamentos",
+    "payments",
+    "brasil",
+    "pyxgate",
+    "ai-agent",
+    "claude"
+  ],
+  "license": "MIT",
+  "bin": {
+    "pyxgate-mcp": "./server.mjs"
+  },
+  "files": [
+    "server.mjs",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cadubarcelos1412/gateway-backend.git",
+    "directory": "mcp"
+  },
+  "homepage": "https://pyxgate-api.onrender.com/docs#mcp",
+  "publishConfig": {
+    "access": "public"
+  }
+}

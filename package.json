@@ -6,9 +6,10 @@
   "scripts": {
     "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
     "build": "tsc",
-    "test": "tsc && node --test dist/acquirers/*.test.js",
+    "test": "tsc && node --test dist/acquirers/*.test.js dist/utils/*.test.js",
     "start": "node dist/server.js",
-    "seed:dev": "ts-node-dev --transpile-only src/seed/dev.seed.ts"
+    "seed:dev": "ts-node-dev --transpile-only src/seed/dev.seed.ts",
+    "build:release": "node scripts/build-release.mjs"
   },
   "engines": {
     "node": ">=18.x"

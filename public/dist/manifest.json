@@ -1,0 +1,21 @@
+{
+  "gerado_em": "2026-09-09T18:47:51.968Z",
+  "pacotes": {
+    "mcp": {
+      "nome": "@pyxgate/mcp",
+      "versao": "1.0.0",
+      "descricao": "Servidor MCP — ferramentas de pagamento para agentes de IA",
+      "arquivo": "mcp-1.0.0.tgz",
+      "tamanho": 9266,
+      "sha256": "d299c89a59e5228f775b7bf8eaac07d58d7d1ca084f9905b011bd1cc557ed3b9"
+    },
+    "sdk": {
+      "nome": "@pyxgate/sdk",
+      "versao": "1.0.0",
+      "descricao": "SDK TypeScript da API /v1",
+      "arquivo": "sdk-1.0.0.tgz",
+      "tamanho": 6208,
+      "sha256": "3ff8dcbfe99ee23a9dcf071eb7d044d6192854d007523e054b10822d000cb7d2"
+    }
+  }
+}

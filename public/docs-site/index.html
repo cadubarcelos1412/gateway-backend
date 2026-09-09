@@ -59,6 +59,14 @@
     </div>
 
     <div class="nav-group">
+      <div class="nav-label">Agentes de IA</div>
+      <a href="#mcp">MCP: visão geral</a>
+      <a href="#mcp-oauth">Autorização (OAuth 2.1)</a>
+      <a href="#mcp-tools">Ferramentas e escopos</a>
+      <a href="#mcp-selfhost">Rodando você mesmo</a>
+    </div>
+
+    <div class="nav-group">
       <div class="nav-label">Recursos</div>
       <a href="./openapi.yaml">openapi.yaml ↗</a>
     </div>
@@ -594,6 +602,158 @@ curl https://pyxgate-api.onrender.com/v1/account \
           <li>Handler do webhook é idempotente.</li>
           <li><code>Idempotency-Key</code> usado na criação da cobrança.</li>
           <li>Testado em modo teste de ponta a ponta antes de trocar para chave live.</li>
+        </ul>
+      </div>
+
+      <div class="page-nav">
+        <a href="#introducao" class="prev"><span class="dir">← Voltar ao topo</span>Introdução</a>
+        <a href="./openapi.yaml" class="next"><span class="dir">Especificação completa</span>openapi.yaml ↗</a>
+      </div>
+    </section>
+
+    <!-- ===================== MCP ===================== -->
+    <section class="doc-section reveal" id="mcp">
+      <h2>MCP — conectando agentes de IA</h2>
+      <p>O <strong>MCP (Model Context Protocol)</strong> é o padrão que permite que um assistente de IA — Claude, Cursor, n8n ou seu próprio agente — use ferramentas externas. O servidor MCP da PYX Gate expõe a API <code>/v1</code> como ferramentas, para que um agente crie uma cobrança Pix, consulte um pagamento ou cadastre um webhook conversando em português.</p>
+      <p>Não é uma API nova: é a mesma <code>/v1</code> desta documentação, com outra embalagem. Tudo que vale aqui vale igual lá — valores em centavos, modo teste isolado, idempotência, escopo por credencial.</p>
+
+      <h3>Conectando</h3>
+      <div class="code-block">
+        <div class="code-tabs">
+          <button class="active" data-tab="claude">Claude Code</button>
+        </div>
+        <pre data-tab="claude">claude mcp add --transport http pyxgate https://mcp.pyxgate.com/mcp</pre>
+        <button class="copy-btn">Copiar</button>
+      </div>
+      <p>Na primeira chamada o cliente abre o navegador na tela de autorização da PYX Gate. Você entra com seu login de seller, <strong>escolhe o ambiente</strong> (teste ou produção) e marca quais permissões concede. Não é preciso criar nem colar chave de API nenhuma.</p>
+
+      <div class="callout">
+        <div class="callout-title">Onde isso é útil</div>
+        <p>Integrar seu checkout com a ajuda de um agente de código, deixar o time de suporte consultar pagamentos em linguagem natural, ou automatizar cobranças dentro de um fluxo de agente.</p>
+      </div>
+    </section>
+
+    <!-- ===================== MCP - OAUTH ===================== -->
+    <section class="doc-section reveal" id="mcp-oauth">
+      <h2>Autorização: OAuth 2.1</h2>
+      <p>O MCP <strong>não usa chave de API</strong>. Usa OAuth 2.1 com PKCE, seguindo a especificação de autorização do MCP. O motivo é concreto: uma chave <code>sk_</code> é tudo-ou-nada e vive para sempre num arquivo de configuração. Um agente de IA lê texto de terceiros — e-mails, páginas, planilhas — e por isso precisa de uma credencial <strong>de escopo reduzido, com prazo, revogável e presa a um ambiente</strong>.</p>
+
+      <table>
+        <thead><tr><th>Peça</th><th>Como funciona</th></tr></thead>
+        <tbody>
+          <tr><td>Descoberta</td><td><code>/.well-known/oauth-protected-resource</code> aponta o Authorization Server; <code>/.well-known/oauth-authorization-server</code> lista os endpoints. O cliente acha tudo sozinho.</td></tr>
+          <tr><td>Registro</td><td>Dynamic Client Registration (RFC 7591) em <code>POST /oauth/register</code>. Nada para cadastrar à mão.</td></tr>
+          <tr><td>PKCE</td><td>Obrigatório, só <code>S256</code>. Cliente MCP é público e não guarda segredo.</td></tr>
+          <tr><td>Consentimento</td><td>Tela da PYX Gate: login do seller, escolha de ambiente e checkbox por permissão.</td></tr>
+          <tr><td>Access token</td><td>JWT assinado em <strong>HMAC-SHA256</strong>, válido por 1 hora, preso a uma audiência específica.</td></tr>
+          <tr><td>Refresh token</td><td>30 dias, <strong>uso único com rotação</strong>. Guardado só como hash SHA-256.</td></tr>
+          <tr><td>Revogação em cascata</td><td>Reutilizar um código de autorização ou um refresh token indica vazamento: todas as sessões daquela aplicação caem na hora.</td></tr>
+        </tbody>
+      </table>
+
+      <h3>Por que HMAC e SHA-256, e não Argon2</h3>
+      <p>São primitivas para problemas diferentes. <strong>Argon2 e bcrypt são KDFs lentas de propósito</strong>, feitas para proteger segredo de <em>baixa entropia</em> — senha humana — contra força bruta offline. É por isso que o login de usuário da PYX Gate usa bcrypt, e continua usando.</p>
+      <p>Um access token ou refresh token nosso tem <strong>256 bits de entropia aleatória</strong>: força bruta é inviável por construção. O que se precisa aí é outra coisa — <strong>integridade verificável sem ida ao banco</strong> (HMAC-SHA256 no access token, validado em memória a cada requisição) e <strong>comparação em tempo constante</strong> do que está no banco (SHA-256 + <code>timingSafeEqual</code> para código, refresh e <code>client_secret</code>, o mesmo que as chaves <code>sk_</code> já usam). Argon2 aqui adicionaria dependência nativa e latência por requisição, sem ganhar segurança nenhuma.</p>
+    </section>
+
+    <!-- ===================== MCP - FERRAMENTAS ===================== -->
+    <section class="doc-section reveal" id="mcp-tools">
+      <h2>Ferramentas e escopos</h2>
+      <p>O token carrega só o que foi marcado no consentimento. Chamada sem o escopo necessário recebe <code>403 insufficient_scope</code>.</p>
+
+      <table>
+        <thead><tr><th>Ferramenta</th><th>Escopo</th><th>O que faz</th></tr></thead>
+        <tbody>
+          <tr><td><code>criar_cobranca_pix</code></td><td><code>payments:write</code></td><td>Cria a cobrança e devolve <strong>o QR Code como imagem</strong> + o copia-e-cola</td></tr>
+          <tr><td><code>consultar_pagamento</code></td><td><code>payments:read</code></td><td>Status de um pagamento (consulta a adquirente ao vivo se pendente)</td></tr>
+          <tr><td><code>listar_pagamentos</code></td><td><code>payments:read</code></td><td>Lista com filtro de status e período</td></tr>
+          <tr><td><code>consultar_conta</code></td><td><code>account:read</code></td><td>Dados do merchant e o ambiente da sessão</td></tr>
+          <tr><td><code>simular_pagamento</code></td><td><code>test:write</code></td><td>Marca uma cobrança de teste como paga ou falha</td></tr>
+          <tr><td><code>listar_webhooks</code></td><td><code>webhooks:read</code></td><td>Endpoints cadastrados e eventos assinados</td></tr>
+          <tr><td><code>criar_webhook</code></td><td><code>webhooks:write</code></td><td>Cadastra endpoint e devolve o secret de assinatura</td></tr>
+          <tr><td><code>atualizar_webhook</code></td><td><code>webhooks:write</code></td><td>Altera URL, eventos ou liga/desliga</td></tr>
+          <tr><td><code>remover_webhook</code></td><td><code>webhooks:write</code></td><td>Remove um endpoint</td></tr>
+        </tbody>
+      </table>
+
+      <div class="callout warn">
+        <div class="callout-title">Conceda escrita em modo teste</div>
+        <p>Para agentes, conceda <code>payments:write</code> apenas em modo <strong>teste</strong>, a menos que você realmente queira que o agente crie cobranças reais. O ambiente é escolhido no consentimento e fica gravado no token — não é parâmetro que o agente possa mudar depois.</p>
+      </div>
+
+      <p>Cada ferramenta declara anotações (<code>readOnlyHint</code>, <code>destructiveHint</code>) para o cliente MCP saber quando pedir confirmação antes de agir. Chaves <code>sk_</code> já emitidas continuam funcionando sem mudança: elas carregam escopo <code>*</code>.</p>
+
+      <h3>Cartão não é exposto como ferramenta</h3>
+      <p>Criar pagamento com cartão exige <code>threeds_data</code>, que só existe depois do desafio 3DS rodar no navegador do comprador (ver <a href="#guia-cartao">guia de cartão</a>). Um agente não tem como produzir esse dado — e uma ferramenta que sempre falha é pior que ferramenta nenhuma.</p>
+
+      <h3>Roteiros prontos</h3>
+      <p>Além das ferramentas, o servidor expõe roteiros que o cliente MCP mostra como comandos:</p>
+      <table>
+        <thead><tr><th>Roteiro</th><th>Para quê</th></tr></thead>
+        <tbody>
+          <tr><td><code>integrar_checkout_pix</code></td><td>Conduz a integração completa na sua stack: cobrança, QR, webhook com verificação HMAC, simulação e liberação do pedido</td></tr>
+          <tr><td><code>diagnosticar_pagamento</code></td><td>Investiga uma cobrança que não confirmou e aponta a causa</td></tr>
+          <tr><td><code>checklist_producao</code></td><td>Confere o que falta antes de sair do modo teste</td></tr>
+        </tbody>
+      </table>
+
+      <h3>Exemplo: uma cobrança por conversa</h3>
+      <div class="code-block">
+        <div class="code-tabs">
+          <button class="active" data-tab="conversa">Conversa</button>
+        </div>
+        <pre data-tab="conversa"><span class="tok-comment"># você</span>
+cria uma cobrança de R$ 29,90 pra Maria, CPF 390.533.447-05
+
+<span class="tok-comment"># o agente chama criar_cobranca_pix e responde com o QR renderizado:</span>
+Cobrança pay_6aa196a53fa6def043a2a63a criada — R$ 29,90 — status pending — modo test.
+Modo teste: este QR não é pagável de verdade.
+
+Pix copia e cola:
+00020126TESTMODE...</pre>
+        <button class="copy-btn">Copiar</button>
+      </div>
+    </section>
+
+    <!-- ===================== MCP - SELF-HOST ===================== -->
+    <section class="doc-section reveal" id="mcp-selfhost">
+      <h2>Rodando o servidor MCP você mesmo</h2>
+      <p>O servidor MCP é um processo separado da API: não tem acesso ao banco nem ao segredo de assinatura, só repassa o token para a <code>/v1</code>. Isso é proposital — comprometer o MCP não compromete o gateway.</p>
+
+      <div class="code-block">
+        <div class="code-tabs">
+          <button class="active" data-tab="run">Terminal</button>
+        </div>
+        <pre data-tab="run">cd mcp
+npm install
+
+PYXGATE_API_URL=https://pyxgate-api.onrender.com \
+MCP_PUBLIC_URL=https://mcp.pyxgate.com/mcp \
+PORT=3333 npm start</pre>
+        <button class="copy-btn">Copiar</button>
+      </div>
+
+      <table>
+        <thead><tr><th>Variável</th><th>Onde</th><th>Para quê</th></tr></thead>
+        <tbody>
+          <tr><td><code>PYXGATE_API_URL</code></td><td>MCP</td><td>Base da API (sem <code>/v1</code>)</td></tr>
+          <tr><td><code>MCP_PUBLIC_URL</code></td><td>MCP</td><td>URL pública deste servidor — é a <strong>audiência</strong> do token</td></tr>
+          <tr><td><code>MCP_RESOURCE_URL</code></td><td>API</td><td>Lista (CSV) de recursos aceitos. <strong>Precisa conter o <code>MCP_PUBLIC_URL</code></strong></td></tr>
+          <tr><td><code>BASE_URL</code></td><td>API</td><td>Usada nos documentos <code>.well-known</code></td></tr>
+        </tbody>
+      </table>
+
+      <div class="callout warn">
+        <div class="callout-title">O erro mais comum da primeira instalação</div>
+        <p><code>MCP_PUBLIC_URL</code> e <code>MCP_RESOURCE_URL</code> divergentes: o token é emitido para um recurso e validado contra outro, e toda chamada volta <code>401 invalid_token</code>.</p>
+      </div>
+
+      <div class="card">
+        <strong>Verificando a instalação</strong>
+        <ul style="margin: 10px 0 0; padding-left: 20px; color: var(--slate);">
+          <li><code>npm test</code> — protocolo MCP, ferramentas, QR Code, 401 e descoberta OAuth.</li>
+          <li><code>node oauth-e2e.mjs</code> — fluxo OAuth completo: descoberta, registro dinâmico, PKCE, consentimento, escopos, rotação de refresh e revogação em cascata.</li>
+          <li>O <code>oauth-e2e.mjs</code> faz login com o seller do seed — rode só contra banco de desenvolvimento, nunca produção.</li>
         </ul>
       </div>
 
