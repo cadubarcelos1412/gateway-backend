@@ -16,15 +16,33 @@ idempotência, escopo por credencial) vale igual no MCP.
 
 ---
 
-## Conectando
+## Instalando
 
-**Endpoint (Streamable HTTP):**
+A PYX Gate distribui o servidor MCP pela **própria infraestrutura**, não por
+registry público. Um comando:
 
+```bash
+# macOS / Linux
+curl -fsSL https://pyxgate-api.onrender.com/install.sh | sh
 ```
-https://mcp.pyxgate.com/mcp
+
+```powershell
+# Windows
+irm https://pyxgate-api.onrender.com/install.ps1 | iex
 ```
 
-No Claude Code:
+O instalador baixa o pacote, **confere o SHA-256 contra o manifesto**
+publicado em `/dist/manifest.json` e só então instala — se o arquivo servido
+não bater com o checksum, ele aborta sem instalar nada. Se o Claude Code
+estiver na máquina, o MCP já é registrado automaticamente.
+
+> Por que checksum: `curl | sh` executa o que o servidor mandar. HTTPS
+> protege o caminho, não o conteúdo. A verificação de integridade é o que
+> transforma isso numa instalação confiável.
+
+### Conectando sem instalar nada
+
+O servidor é hospedado — dá pra apontar direto:
 
 ```bash
 claude mcp add --transport http pyxgate https://mcp.pyxgate.com/mcp

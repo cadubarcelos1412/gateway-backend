@@ -8,3 +8,4 @@ sdk/dist/
 
 # tarballs de npm pack
 *.tgz
+!public/dist/*.tgz
