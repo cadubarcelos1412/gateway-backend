@@ -1,0 +1,22 @@
+{
+  "name": "@pyxgate/sdk",
+  "version": "1.0.0",
+  "description": "SDK oficial da PYX Gate — cobrancas Pix e cartao, webhooks assinados. Zero dependencias.",
+  "keywords": ["pix", "pagamentos", "gateway", "brasil", "payments", "pyxgate", "checkout", "webhook"],
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": { ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" } },
+  "files": ["dist", "README.md"],
+  "engines": { "node": ">=18" },
+  "repository": { "type": "git", "url": "git+https://github.com/cadubarcelos1412/gateway-backend.git", "directory": "sdk" },
+  "homepage": "https://pyxgate-api.onrender.com/docs",
+  "scripts": {
+    "build": "tsc",
+    "test": "npm run build && node --test test/*.test.mjs",
+    "prepublishOnly": "npm run build"
+  },
+  "devDependencies": { "typescript": "^5.9.3", "@types/node": "^22.12.0" },
+  "publishConfig": { "access": "public" }
+}

@@ -11,6 +11,7 @@ import routes from "./routes";
 import cashoutRoutes from "./routes/cashout.routes";
 import v1Routes from "./routes/v1";
 import docsRoutes from "./routes/docs.routes";
+import oauthRoutes, { wellKnownRouter } from "./routes/oauth.routes";
 import { reconcilePendingZendryPix } from "./services/zendryReconciliation.service";
 import { releaseAllMaturedWallets } from "./services/wallet.service";
 import { reconcilePixPayoutStatuses } from "./services/pixPayoutReconciliation.service";
@@ -213,7 +214,13 @@ connectDB()
 /* -------------------------------------------------------------------------- */
 app.use("/api", routes); // rotas gerais (usuários, transações, etc.)
 app.use("/api/cashouts", cashoutRoutes); // módulo de saques
-app.use("/v1", v1Routes); // 🌐 API pública, autenticada por API key (sk_...)
+app.use("/v1", v1Routes); // 🌐 API pública: chave sk_... ou access token OAuth
+
+// 🔓 OAuth 2.1 — Authorization Server usado pelo servidor MCP e por apps de
+// terceiros que agem em nome do seller. Os documentos .well-known precisam
+// ficar na RAIZ do domínio (RFC 8414 / RFC 9728): é lá que o cliente procura.
+app.use("/oauth", oauthRoutes);
+app.use("/.well-known", wellKnownRouter);
 
 // 📚 Docs navegáveis (site estático, sem dados sensíveis) — pública em qualquer ambiente.
 app.use("/docs", docsRoutes);

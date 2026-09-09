@@ -68,6 +68,7 @@ de ponta a ponta em modo teste, sem mover dinheiro real.
 | [guia-pix.md](./guia-pix.md) | Passo a passo completo: cobrança → QR → webhook → pedido liberado |
 | [guia-cartao.md](./guia-cartao.md) | Status atual da integração de cartão (leia antes de integrar) |
 | [guia-checkout-ecommerce.md](./guia-checkout-ecommerce.md) | Encaixando no checkout do seu e-commerce |
+| [mcp.md](./mcp.md) | Servidor MCP: conectando agentes de IA, OAuth 2.1, ferramentas e escopos |
 | [openapi.yaml](./openapi.yaml) | Especificação OpenAPI 3.1 completa |
 | [ARQUITETURA.md](./ARQUITETURA.md) | Como o sistema é construído por dentro |
 

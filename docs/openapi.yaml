@@ -396,6 +396,33 @@ components:
         Publishable keys (`pk_...`) não autenticam nenhum endpoint desta API
         — são só para uso client-side em SDKs futuros.
 
+        Chaves de API carregam escopo `*` (acesso a todos os endpoints).
+        Para acesso granular, use OAuth 2.1 (`oauth2` abaixo).
+
+    oauth2:
+      type: oauth2
+      description: |
+        Usado pelo servidor MCP e por aplicações de terceiros que agem em
+        nome do seller. Diferente da chave de API, o token é granular
+        (escopos escolhidos no consentimento), tem prazo (1h, com refresh
+        rotativo de 30 dias) e fica preso ao ambiente (test/live) escolhido
+        na autorização — o modo não é parâmetro de requisição.
+
+        O registro do cliente é dinâmico (RFC 7591) e PKCE S256 é
+        obrigatório. Ver `docs/mcp.md`.
+      flows:
+        authorizationCode:
+          authorizationUrl: https://pyxgate-api.onrender.com/oauth/authorize
+          tokenUrl: https://pyxgate-api.onrender.com/oauth/token
+          refreshUrl: https://pyxgate-api.onrender.com/oauth/token
+          scopes:
+            account:read: Ver dados da conta e o ambiente ativo
+            payments:read: Consultar e listar pagamentos
+            payments:write: Criar cobranças Pix
+            webhooks:read: Ver endpoints de webhook
+            webhooks:write: Criar, alterar e remover endpoints de webhook
+            test:write: Simular pagamentos em modo teste
+
   parameters:
     IdempotencyKey:
       name: Idempotency-Key

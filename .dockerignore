@@ -9,3 +9,7 @@ dist
 .env
 src/files
 *.zip
+
+# subprojetos publicados no npm — não entram na imagem da API
+mcp
+sdk
