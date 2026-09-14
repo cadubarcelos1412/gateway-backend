@@ -63,10 +63,20 @@ const REQUIRED_THREEDS_FIELDS: (keyof ZendryThreedsData)[] = [
 function normalizeThreedsData(data: Record<string, string> | undefined): ZendryThreedsData | undefined {
   if (!data) return undefined;
   const missing = REQUIRED_THREEDS_FIELDS.filter((field) => !data[field]);
-  if (missing.length > 0) {
-    console.warn(`⚠️ Zendry (cartão): threeds_data incompleto, seguindo sem 3DS. Faltando: ${missing.join(", ")}.`);
+  if (missing.length === 0) {
+    return data as unknown as ZendryThreedsData;
+  }
+  // Incompleto não é mais descartado por inteiro. Os campos criptográficos
+  // (cavv/xid/eci/...) só existem com o desafio 3DS, que morreu na migração da
+  // Zendry — mas os de RISCO (ip_address, user_agent, idioma, resolução,
+  // zip_code) continuam valendo e a Zendry os usa na análise. Descartar tudo
+  // junto deixava a adquirente sem nenhum dado do comprador.
+  const keys = Object.keys(data).filter((k) => data[k]);
+  if (keys.length === 0) {
+    console.warn("⚠️ Zendry (cartão): sem threeds_data nenhum, seguindo sem dados de risco.");
     return undefined;
   }
+  console.warn(`⚠️ Zendry (cartão): sem 3DS, enviando só os dados de risco (${keys.join(", ")}). Faltando: ${missing.join(", ")}.`);
   return data as unknown as ZendryThreedsData;
 }
 
