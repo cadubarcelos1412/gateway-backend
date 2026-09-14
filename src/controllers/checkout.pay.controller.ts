@@ -161,8 +161,12 @@ export const payCheckout: RequestHandler = async (req, res) => {
         res.status(400).json({ status: false, msg: "Cartão indisponível para este checkout." });
         return;
       }
-      if (!card?.number || !card.holderName || !card.expirationDate || !card.securityCode || !threedsData) {
-        res.status(400).json({ status: false, msg: "Dados do cartão ou da autenticação 3DS incompletos." });
+      // threedsData saiu da condição: o desafio 3DS no navegador deixou de
+      // existir na migração da Zendry (ver normalizeThreedsData em
+      // acquirers/zendry.acquirer.ts). Exigir aqui derrubava toda venda no
+      // cartão antes mesmo de chegar na adquirente.
+      if (!card?.number || !card.holderName || !card.expirationDate || !card.securityCode) {
+        res.status(400).json({ status: false, msg: "Dados do cartão incompletos." });
         return;
       }
 

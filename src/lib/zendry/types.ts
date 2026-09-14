@@ -70,7 +70,15 @@ export interface CreateCardPaymentInput {
   cardHolderDocument: string;
   /** 1 a 14 — ver CARD_INSTALLMENT_RATES em status-mapper.ts pra calcular o valor real por parcela. */
   installments: number;
-  threedsData: ZendryThreedsData;
+  /**
+   * Opcional desde 2026-09: o passo de 3DS no navegador morreu na migração
+   * da Zendry — o SDK (cdn.zendry.com) tem api.zendry.com fixo no código e o
+   * token emitido em api.zendry.co é recusado lá com 401; no domínio novo a
+   * rota /v1/card_payments/threeds responde 404. Verificado contra a API
+   * atual que cobrar COM e SEM threeds_data devolve o mesmo resultado — o
+   * antigo 422 "Threeds data is required" não existe mais.
+   */
+  threedsData?: ZendryThreedsData;
 }
 
 export interface CreateCardPaymentResult {

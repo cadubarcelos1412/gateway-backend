@@ -43,13 +43,29 @@ const REQUIRED_THREEDS_FIELDS: (keyof ZendryThreedsData)[] = [
   "zip_code",
 ];
 
-function assertThreedsData(data: Record<string, string> | undefined): ZendryThreedsData {
-  if (!data) {
-    throw new Error("Dados de 3DS (threedsData) ausentes para pagamento com cartão via Zendry.");
-  }
+/**
+ * Antes isto lançava quando o 3DS não vinha. Não lança mais: o desafio 3DS no
+ * navegador deixou de existir quando a Zendry migrou de plataforma — o SDK
+ * (cdn.zendry.com/v1/zendry-sdk-threeds.min.js) tem api.zendry.com FIXO no
+ * código e manda para lá um token emitido em api.zendry.co, que o domínio
+ * antigo recusa com 401 "Invalid token"; e no domínio novo a rota
+ * /v1/card_payments/threeds responde 404, não existe mais. Com a validação
+ * antiga, TODA venda no cartão morria aqui antes de chegar na adquirente.
+ *
+ * Verificado contra a API atual (api.zendry.co/v1/card_payments): cobrar com
+ * e sem threeds_data devolve exatamente o mesmo resultado, e o antigo
+ * 422 "Threeds data is required" não aparece mais.
+ *
+ * Quando o 3DS vier completo, ele continua sendo enviado — só não é mais
+ * pré-requisito. Incompleto é descartado inteiro: meio 3DS não autentica
+ * nada e só faria a adquirente recusar por payload inválido.
+ */
+function normalizeThreedsData(data: Record<string, string> | undefined): ZendryThreedsData | undefined {
+  if (!data) return undefined;
   const missing = REQUIRED_THREEDS_FIELDS.filter((field) => !data[field]);
   if (missing.length > 0) {
-    throw new Error(`Campo threedsData incompleto: faltando ${missing.join(", ")}.`);
+    console.warn(`⚠️ Zendry (cartão): threeds_data incompleto, seguindo sem 3DS. Faltando: ${missing.join(", ")}.`);
+    return undefined;
   }
   return data as unknown as ZendryThreedsData;
 }
@@ -57,8 +73,8 @@ function assertThreedsData(data: Record<string, string> | undefined): ZendryThre
 /**
  * 🏦 ZendryAcquirer — Adapter para a Zendry (https://api.zendry.com.br).
  * Pix: QR Code + copia-e-cola gerado direto (POST /v1/pix/qrcodes).
- * Cartão: adquirente direto (número/CVV no nosso backend), 3DS obrigatório
- * — o `threedsData` já deve chegar calculado por um SDK client-side.
+ * Cartão: adquirente direto (número/CVV no nosso backend). 3DS deixou de ser
+ * obrigatório — ver normalizeThreedsData abaixo.
  *
  * Sem sandbox confirmado: toda chamada aqui é contra produção da Zendry.
  */
@@ -115,7 +131,7 @@ export class ZendryAcquirer implements IAcquirer {
       throw new Error(`Número de parcelas inválido (máximo ${MAX_CARD_INSTALLMENTS}x).`);
     }
 
-    const threedsData = assertThreedsData(payload.threedsData);
+    const threedsData = normalizeThreedsData(payload.threedsData);
 
     // Sobretaxa de parcela é repasse ao CLIENTE (o que ele paga no cartão) —
     // nunca altera o amount/fee/netAmount do seller, que continuam com base
