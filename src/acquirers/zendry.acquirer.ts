@@ -10,6 +10,7 @@ import {
 } from "./types";
 import { createPix } from "../lib/zendry/pix";
 import { createCardPayment } from "../lib/zendry/card";
+import { createNativeCardPayment, isNativeCardEnabled } from "../lib/zendry/native-card";
 import { computeCardTotal, MAX_CARD_INSTALLMENTS } from "../lib/zendry/status-mapper";
 import type { ZendryThreedsData } from "../lib/zendry/types";
 import { sendPixPayment, getPixPaymentStatus, ZendryPixKeyType } from "../lib/zendry/pixPayout";
@@ -143,6 +144,11 @@ export class ZendryAcquirer implements IAcquirer {
 
     const threedsData = normalizeThreedsData(payload.threedsData);
 
+    // Sobretaxa calculada antes do desvio: os dois caminhos cobram o mesmo.
+    if (isNativeCardEnabled()) {
+      return this.createCardTransactionNative(payload, computeCardTotal(payload.amount, payload.card.installments));
+    }
+
     // Sobretaxa de parcela é repasse ao CLIENTE (o que ele paga no cartão) —
     // nunca altera o amount/fee/netAmount do seller, que continuam com base
     // no valor "cru" do pedido (payload.amount).
@@ -192,6 +198,84 @@ export class ZendryAcquirer implements IAcquirer {
         cardAuthorizationCode: result.authorizationCode,
         cardChargedAmount,
       },
+    };
+  }
+
+  /**
+   * Cartão pela API Nativa da Zendry. Mesmo contrato de retorno do caminho
+   * legado — quem chama não sabe (nem precisa saber) qual dos dois rodou.
+   *
+   * requires_action é o caso que interessa observar: significa que o emissor
+   * pediu 3DS. O desafio ainda não é concluído aqui (falta a etapa no
+   * navegador), então a cobrança é recusada com mensagem clara — mas o
+   * `action` é logado justamente pra sabermos o formato dele e implementar a
+   * conclusão em seguida.
+   */
+  private async createCardTransactionNative(
+    payload: CreateTransactionDTO,
+    cardChargedAmount: number,
+  ): Promise<CreateTransactionResult> {
+    const card = payload.card!;
+    const email = payload.customer.email;
+    if (!email) {
+      throw new Error("E-mail do comprador é obrigatório para cartão na API nativa da Zendry.");
+    }
+
+    const threeds = payload.threedsData || {};
+    const screenHeight = Number(threeds.http_browser_screen_height);
+    const screenWidth = Number(threeds.http_browser_screen_width);
+
+    let result;
+    try {
+      result = await createNativeCardPayment({
+        externalId: payload.idempotencyKey || crypto.randomUUID(),
+        amountBRL: cardChargedAmount,
+        installments: card.installments,
+        buyer: { name: payload.customer.name, email, taxpayerId: payload.customer.document! },
+        card: {
+          holderName: card.holderName,
+          number: card.number,
+          expirationDate: card.expirationDate,
+          securityCode: card.securityCode,
+        },
+        device:
+          threeds.http_browser_language && screenHeight > 0 && screenWidth > 0
+            ? {
+                language: threeds.http_browser_language,
+                screenHeight,
+                screenWidth,
+                // Brasil = -3. A API espera horas, não minutos.
+                timeZoneOffset: -3,
+              }
+            : undefined,
+        ipAddress: threeds.ip_address || payload.customer.ip,
+        userAgent: threeds.user_agent_browser_value,
+      });
+    } catch (err) {
+      // Nunca propaga o corpo bruto: a requisição carrega número e CVV.
+      console.error("❌ Zendry (cartão, API nativa) falhou:", err);
+      throw new Error("Erro de conexão com o gateway de pagamento (cartão).");
+    }
+
+    if (result.state === "requires_action") {
+      console.warn(
+        "⚠️ Zendry (cartão, API nativa): emissor exigiu 3DS (requires_action). Formato do desafio:",
+        JSON.stringify(result.action),
+      );
+      throw new Error("Esse cartão exige uma etapa extra de segurança (3DS). Tente outro cartão ou pague com Pix.");
+    }
+    if (result.state !== "approved") {
+      console.error(
+        `❌ Zendry (cartão, API nativa) não aprovou: state=${result.state} motivo=${result.failureReason ?? "-"}`,
+      );
+      throw new Error("Pagamento recusado pela operadora do cartão.");
+    }
+
+    return {
+      externalId: result.id,
+      postbackUrl: payload.postbackUrl,
+      synchronouslyApproved: true,
+      paymentDetails: { cardChargedAmount },
     };
   }
 
