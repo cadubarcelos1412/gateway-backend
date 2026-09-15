@@ -3,7 +3,8 @@ import { Transaction } from "../models/transaction.model";
 import { User } from "../models/user.model";
 import { Seller } from "../models/seller.model";
 import { createToken, decodeToken } from "../config/auth";
-import { ACQUIRER_KEYS, resolveSellerAcquirer } from "../acquirers";
+import { ACQUIRER_KEYS, resolveSellerAcquirer, ACQUIRER_COST, AcquirerKey } from "../acquirers";
+import CashoutRequest from "../models/cashoutRequest.model";
 import { getOrCreateDefaultFeeConfig, SystemFeeConfig } from "../models/systemFeeConfig.model";
 import { SplitRule } from "../models/splitRule.model";
 import { reconcilePendingZendryPix } from "../services/zendryReconciliation.service";
@@ -133,7 +134,7 @@ export const getKpas = async (_req: Request, res: Response): Promise<void> => {
     // incluir aqui contaria o volume da plataforma em dobro.
     const baseMatch = { "metadata.source": { $ne: "partner_split" } };
 
-    const [facetResult, totalUsuarios, usuariosHoje] = await Promise.all([
+    const [facetResult, totalUsuarios, usuariosHoje, pixOutPorAdquirente] = await Promise.all([
       Transaction.aggregate([
         { $match: baseMatch },
         {
@@ -155,11 +156,24 @@ export const getKpas = async (_req: Request, res: Response): Promise<void> => {
               { $match: { status: "approved" } },
               { $group: { _id: "$method", total: { $sum: "$amount" } } },
             ],
+            // Pra calcular quanto a adquirente cobra da PyxGate em Pix-in (ver ACQUIRER_COST) —
+            // só Pix porque é o único método com custo de adquirente conhecido hoje.
+            pixInPorAdquirente: [
+              { $match: { status: "approved", method: "pix" } },
+              { $group: { _id: "$acquirer", total: { $sum: "$amount" } } },
+            ],
           },
         },
       ]),
       User.countDocuments(),
       User.countDocuments({ createdAt: { $gte: todayStart, $lt: todayEnd } }),
+      // Pix-out (saque) cobra taxa na própria CashoutRequest (ver cashout.service.ts),
+      // não vira Transaction — precisa somar fee/volume dessa coleção à parte pro
+      // "total de taxas" e custo de adquirente baterem com a realidade.
+      CashoutRequest.aggregate([
+        { $match: { rail: "pix", status: { $in: ["approved", "completed"] } } },
+        { $group: { _id: "$acquirer", volume: { $sum: "$amount" }, fee: { $sum: "$fee" } } },
+      ]),
     ]);
 
     const facet = facetResult[0];
@@ -182,6 +196,22 @@ export const getKpas = async (_req: Request, res: Response): Promise<void> => {
       {}
     );
 
+    // 💰 Lucro = taxas que cobramos do seller (Pix in + Pix out) menos o que
+    // pagamos pra adquirente (ACQUIRER_COST) — só Pix hoje, é o único método
+    // com custo de adquirente conhecido/negociado (ver ACQUIRER_COST).
+    const pixInPorAdquirente = facet.pixInPorAdquirente as { _id: AcquirerKey | null; total: number }[];
+    let custoAdquirente = 0;
+    for (const row of pixInPorAdquirente) {
+      if (row._id) custoAdquirente += (row.total * ACQUIRER_COST[row._id].pixIn) / 100;
+    }
+    let taxasPixOut = 0;
+    for (const row of pixOutPorAdquirente as { _id: AcquirerKey | null; volume: number; fee: number }[]) {
+      taxasPixOut += row.fee;
+      if (row._id) custoAdquirente += (row.volume * ACQUIRER_COST[row._id].pixOut) / 100;
+    }
+    const totalTaxasGeral = totalTaxas + taxasPixOut;
+    const lucro = Number((totalTaxasGeral - custoAdquirente).toFixed(2));
+
     // 📤 Resposta final
     res.status(200).json({
       status: true,
@@ -191,6 +221,9 @@ export const getKpas = async (_req: Request, res: Response): Promise<void> => {
         totalUsuarios,
         usuariosHoje,
         totalTaxas,
+        totalTaxasGeral,
+        custoAdquirente: Number(custoAdquirente.toFixed(2)),
+        lucro,
         taxasMensais,
         taxaConversao: `${taxaConversao.toFixed(2)}%`,
         ticketMedio: Number(ticketMedio.toFixed(2)),

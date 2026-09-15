@@ -29,6 +29,15 @@ export type AcquirerKey = "zendry" | "sttart";
 // Se precisar adicionar novas, basta incluir aqui
 export const ACQUIRER_KEYS: readonly AcquirerKey[] = ["zendry", "sttart"] as const;
 
+/** Quanto CADA adquirente cobra da PyxGate por Pix (% sobre o valor) — negociação
+ * de contrato, não muda sozinho, mesmo estilo de constante hardcoded que
+ * CARD_FEES (feeTable.types.ts). Usado só pra calcular o lucro exibido no
+ * admin (getKpas) — nunca usado pra cobrar o seller, isso é o feeTable dele. */
+export const ACQUIRER_COST: Record<AcquirerKey, { pixIn: number; pixOut: number }> = {
+  zendry: { pixIn: 1.5, pixOut: 1 },
+  sttart: { pixIn: 0, pixOut: 0 },
+};
+
 /* -------------------------------------------------------------------------- */
 /* 🏭 Registro de Adapters (Factory Map)                                      */
 /* -------------------------------------------------------------------------- */
